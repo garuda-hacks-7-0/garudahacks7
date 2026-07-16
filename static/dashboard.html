@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Disaster Triage Dashboard Mock</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+      body { margin: 0; font-family: Arial, sans-serif; color: #17202a; }
+      header { min-height: 56px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 20px; border-bottom: 1px solid #d9e2ec; box-sizing: border-box; }
+      #map { height: calc(100vh - 56px); }
+      .panel { position: absolute; z-index: 500; right: 16px; top: 76px; width: 340px; max-height: calc(100vh - 104px); overflow: auto; background: white; border: 1px solid #d9e2ec; border-radius: 8px; padding: 14px; box-shadow: 0 8px 22px rgba(15, 23, 42, .12); }
+      .region { border-top: 1px solid #edf2f7; padding: 12px 0; }
+      .region:first-child { border-top: 0; }
+      .risk { display: inline-block; padding: 3px 8px; border-radius: 999px; color: white; font-size: 12px; }
+      .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+      .control { display: flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; }
+      button, select { border: 1px solid #b8c4d4; background: #fff; border-radius: 6px; padding: 8px 10px; cursor: pointer; }
+      input[type="range"] { width: 180px; }
+      .muted { color: #5f6c7b; font-size: 12px; }
+      @media (max-width: 760px) {
+        #map { height: calc(100vh - 104px); }
+        .panel { left: 12px; right: 12px; bottom: 12px; top: auto; width: auto; max-height: 42vh; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>WhatsApp Disaster Triage</strong>
+      <div class="controls">
+        <label class="control">
+          Urgency
+          <select id="urgency">
+            <option value="all">All</option>
+            <option value="medical">Medical</option>
+            <option value="critical">Critical</option>
+            <option value="high">High+</option>
+            <option value="medium">Medium+</option>
+          </select>
+        </label>
+        <label class="control">
+          Distance
+          <input id="distance" type="range" min="0" max="13000" step="25" value="13000" />
+          <span id="distance-label">13000 km</span>
+        </label>
+        <button id="use-location">Use live location</button>
+        <button id="send-demo">Send demo WhatsApp report</button>
+      </div>
+      <span id="status"></span>
+    </header>
+    <div id="map"></div>
+    <aside class="panel">
+      <strong>Regional queue</strong>
+      <div id="regions"></div>
+    </aside>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+      const map = L.map("map").setView([-6.9, 110.62], 10);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(map);
+      const layer = L.layerGroup().addTo(map);
+      const userLayer = L.layerGroup().addTo(map);
+      const status = document.querySelector("#status");
+      const urgency = document.querySelector("#urgency");
+      const distance = document.querySelector("#distance");
+      const distanceLabel = document.querySelector("#distance-label");
+      const fallbackLocation = { lat: -6.9218, lon: 110.5157, label: "Demo location: Sayung" };
+      let currentLocation = fallbackLocation;
+
+      function color(risk) {
+        if (risk >= 0.75) return "#c0392b";
+        if (risk >= 0.55) return "#d68910";
+        return "#2874a6";
+      }
+
+      function updateDistanceLabel() {
+        distanceLabel.textContent = `${Number(distance.value).toLocaleString()} km`;
+      }
+
+      function setOperatorLocation(location) {
+        currentLocation = location;
+        userLayer.clearLayers();
+        L.circleMarker([location.lat, location.lon], {
+          radius: 7,
+          color: "#1f618d",
+          fillColor: "#85c1e9",
+          fillOpacity: 0.9
+        }).addTo(userLayer).bindPopup(location.label);
+      }
+
+      function queryString() {
+        const params = new URLSearchParams({
+          urgency: urgency.value,
+          lat: currentLocation.lat,
+          lon: currentLocation.lon,
+          max_distance_km: distance.value
+        });
+        return params.toString();
+      }
+
+      async function refresh() {
+        updateDistanceLabel();
+        const regions = await fetch(`/api/regions?${queryString()}`).then((res) => res.json());
+        layer.clearLayers();
+        document.querySelector("#regions").innerHTML = regions.length ? regions.map((region) => `
+          <div class="region">
+            <div><strong>${region.name}</strong> <span class="risk" style="background:${color(region.risk_score)}">${Math.round(region.risk_score * 100)} risk</span></div>
+            <p>${region.last_summary}</p>
+            <div class="muted">${region.distance_km ?? "?"} km from ${currentLocation.label}</div>
+            <small>${region.nearest_resources.map((r) => r.name).join(" · ")}</small>
+          </div>
+        `).join("") : `<p class="muted">No regions match the current filters.</p>`;
+        for (const region of regions) {
+          const marker = L.circleMarker([region.lat, region.lon], {
+            radius: 12 + region.reports.length * 2,
+            color: color(region.risk_score),
+            fillColor: color(region.risk_score),
+            fillOpacity: 0.72
+          }).addTo(layer);
+          marker.bindPopup(`<strong>${region.name}</strong><br>${region.last_summary}<br>${region.distance_km ?? "?"} km away`);
+        }
+      }
+
+      document.querySelector("#use-location").addEventListener("click", () => {
+        if (!navigator.geolocation) {
+          status.textContent = "geolocation unavailable; using demo location";
+          setOperatorLocation(fallbackLocation);
+          refresh();
+          return;
+        }
+
+        status.textContent = "getting location...";
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            setOperatorLocation({
+              lat: position.coords.latitude,
+              lon: position.coords.longitude,
+              label: "Live location"
+            });
+            status.textContent = "using live location";
+            refresh();
+          },
+          () => {
+            status.textContent = "location blocked; using demo location";
+            setOperatorLocation(fallbackLocation);
+            refresh();
+          },
+          { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+        );
+      });
+
+      urgency.addEventListener("change", refresh);
+      distance.addEventListener("input", refresh);
+
+      document.querySelector("#send-demo").addEventListener("click", async () => {
+        status.textContent = "sending...";
+        await fetch("/demo/reports", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sender: "whatsapp:+628-demo",
+            text: "banjir besar di Sayung Demak, jalan putus, ada lansia sakit perlu puskesmas",
+            image_url: "https://example.com/flooded-field.jpg"
+          })
+        });
+        status.textContent = "demo report received";
+        await refresh();
+      });
+
+      setOperatorLocation(fallbackLocation);
+      refresh();
+      setInterval(refresh, 5000);
+    </script>
+  </body>
+</html>
