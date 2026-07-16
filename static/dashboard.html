@@ -1,209 +1,142 @@
 <!doctype html>
-<html lang="en">
+<html lang="id">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Disaster Triage Dashboard Mock</title>
+    <title>TanggapTani — Peta Respons Bencana Pertanian</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-      body { margin: 0; font-family: Arial, sans-serif; color: #17202a; }
-      header { min-height: 56px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 20px; border-bottom: 1px solid #d9e2ec; box-sizing: border-box; }
-      #map { height: calc(100vh - 56px); }
-      .panel { position: absolute; z-index: 500; right: 16px; top: 76px; width: 340px; max-height: calc(100vh - 104px); overflow: auto; background: white; border: 1px solid #d9e2ec; border-radius: 8px; padding: 14px; box-shadow: 0 8px 22px rgba(15, 23, 42, .12); }
-      .region { border-top: 1px solid #edf2f7; padding: 12px 0; }
-      .region:first-child { border-top: 0; }
-      .risk { display: inline-block; padding: 3px 8px; border-radius: 999px; color: white; font-size: 12px; }
-      .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-      .control { display: flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; }
-      button, select { border: 1px solid #b8c4d4; background: #fff; border-radius: 6px; padding: 8px 10px; cursor: pointer; }
-      input[type="range"] { width: 180px; }
-      .muted { color: #5f6c7b; font-size: 12px; }
-      @media (max-width: 760px) {
-        #map { height: calc(100vh - 104px); }
-        .panel { left: 12px; right: 12px; bottom: 12px; top: auto; width: auto; max-height: 42vh; }
-      }
+      :root { --green:#14532d; --lime:#65a30d; --ink:#17221b; --muted:#65736a; --line:#dce6de; --bg:#f5f8f5; --red:#b42318; --amber:#b54708; }
+      * { box-sizing: border-box; }
+      body { margin:0; font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif; color:var(--ink); background:var(--bg); }
+      header { min-height:64px; display:flex; align-items:center; gap:16px; flex-wrap:wrap; padding:10px 18px; background:#fff; border-bottom:1px solid var(--line); }
+      .brand { display:flex; align-items:center; gap:9px; color:var(--green); font-weight:800; font-size:18px; }
+      .brand-mark { display:grid; place-items:center; width:34px; height:34px; border-radius:10px; color:#fff; background:var(--green); }
+      .controls { display:flex; align-items:center; gap:9px; flex:1; flex-wrap:wrap; }
+      .control { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); white-space:nowrap; }
+      button,select,input,textarea { font:inherit; }
+      button,select,input { border:1px solid #b8c9bc; background:#fff; border-radius:8px; padding:8px 10px; }
+      button { cursor:pointer; color:var(--green); font-weight:650; }
+      button.primary { color:#fff; background:var(--green); border-color:var(--green); }
+      button.small { padding:6px 8px; font-size:11px; }
+      input[type="range"] { width:110px; padding:0; }
+      #map { height:calc(100vh - 64px); }
+      .panel { position:absolute; z-index:500; right:16px; top:82px; width:min(390px,calc(100vw - 32px)); max-height:calc(100vh - 102px); overflow:auto; background:#fff; border:1px solid var(--line); border-radius:14px; padding:14px; box-shadow:0 12px 32px rgba(25,50,32,.16); }
+      .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:10px 0 4px; }
+      .stat { background:#edf5ef; border-radius:10px; padding:10px; }
+      .stat b { display:block; font-size:20px; color:var(--green); }
+      .stat span,.muted { color:var(--muted); font-size:11px; }
+      .region { border-top:1px solid #edf2ee; padding:14px 0; }
+      .region:first-child { border-top:0; }
+      .row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+      .risk,.pill { display:inline-flex; padding:3px 7px; border-radius:999px; font-size:10px; font-weight:750; }
+      .risk { color:#fff; }
+      .pill { background:#edf5ef; color:var(--green); margin:2px 3px 2px 0; }
+      .report { margin-top:9px; padding:10px; border:1px solid var(--line); border-radius:10px; background:#fbfdfb; }
+      .report img { display:block; width:100%; height:110px; object-fit:cover; border-radius:7px; margin:7px 0; }
+      .report p,.region p { font-size:12px; line-height:1.45; margin:7px 0; }
+      .actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+      .contact { margin-top:7px; padding:7px 9px; border-left:3px solid var(--lime); background:#f4f8ef; font-size:11px; }
+      #status { font-size:12px; color:var(--muted); }
+      dialog { width:min(520px,calc(100vw - 24px)); border:0; border-radius:14px; box-shadow:0 20px 60px rgba(0,0,0,.25); }
+      dialog::backdrop { background:rgba(15,25,18,.55); }
+      form { display:grid; gap:10px; }
+      form label { display:grid; gap:4px; font-size:12px; color:var(--muted); }
+      form input,form textarea { width:100%; border:1px solid #b8c9bc; border-radius:8px; padding:9px; }
+      form textarea { min-height:90px; resize:vertical; }
+      .leaflet-popup-content { min-width:230px; }
+      @media(max-width:800px){ #map{height:calc(100vh - 112px)} .panel{left:10px;right:10px;bottom:10px;top:auto;width:auto;max-height:46vh} header{min-height:112px}.brand{width:100%} }
     </style>
   </head>
   <body>
     <header>
-      <strong>WhatsApp Disaster Triage</strong>
+      <div class="brand"><span class="brand-mark">TT</span>TanggapTani</div>
       <div class="controls">
-        <label class="control">
-          Urgency
-          <select id="urgency">
-            <option value="all">All</option>
-            <option value="medical">Medical</option>
-            <option value="critical">Critical</option>
-            <option value="high">High+</option>
-            <option value="medium">Medium+</option>
-          </select>
+        <label class="control">View as
+          <select id="view"><option value="responder">Responder</option><option value="public">Publik</option></select>
         </label>
-        <label class="control">
-          Distance
-          <input id="distance" type="range" min="0" max="13000" step="25" value="13000" />
-          <span id="distance-label">13000 km</span>
+        <label class="control">Kategori
+          <select id="category"><option value="all">Semua</option><option value="flood">Banjir</option><option value="drought">Kekeringan</option><option value="crop_damage">Kerusakan</option><option value="crop_pest">Hama</option><option value="storm">Badai</option><option value="fire">Kebakaran</option><option value="landslide">Longsor</option></select>
         </label>
-        <button id="use-location">Use live location</button>
-        <button id="send-demo">Send demo WhatsApp report</button>
+        <label class="control">Waktu
+          <select id="hours"><option value="24">24 jam</option><option value="168">7 hari</option><option value="720" selected>30 hari</option></select>
+        </label>
+        <span id="responder-controls" class="controls">
+          <label class="control">Organisasi <select id="organization"></select></label>
+          <label class="control">Urgensi
+            <select id="urgency"><option value="all">Semua</option><option value="medical">Medis</option><option value="critical">Kritis</option><option value="high">Tinggi+</option><option value="medium">Sedang+</option></select>
+          </label>
+          <label class="control">Jarak <input id="distance" type="range" min="5" max="13000" step="25" value="13000" /><span id="distance-label">13.000 km</span></label>
+          <button id="use-location">Lokasi saya</button>
+        </span>
+        <button id="send-demo">Demo laporan WA</button>
+        <button id="open-alert">Admin alert</button>
       </div>
       <span id="status"></span>
     </header>
     <div id="map"></div>
     <aside class="panel">
-      <strong>Regional queue</strong>
+      <div class="row"><strong id="panel-title">Antrean responder</strong><span class="muted" id="privacy-label">Data operasional</span></div>
+      <div class="stats"><div class="stat"><b id="stat-reports">0</b><span>laporan</span></div><div class="stat"><b id="stat-critical">0</b><span>kritis</span></div><div class="stat"><b id="stat-handled">0</b><span>ditangani</span></div></div>
       <div id="regions"></div>
     </aside>
+
+    <dialog id="alert-dialog">
+      <form id="alert-form">
+        <div class="row"><strong>Simulasi peringatan BMKG</strong><button type="button" id="close-alert">Tutup</button></div>
+        <label>Area<input name="area_name" value="Sayung, Demak" required /></label>
+        <div class="row"><label>Latitude<input name="lat" type="number" step="any" value="-6.9218" required /></label><label>Longitude<input name="lon" type="number" step="any" value="110.5157" required /></label><label>Radius (km)<input name="radius_km" type="number" value="20" min="1" max="500" required /></label></div>
+        <label>Pesan<textarea name="message" required>Waspada hujan ekstrem dan potensi banjir. Amankan dokumen, hasil panen, dan ternak; ikuti arahan posko setempat.</textarea></label>
+        <button class="primary" type="submit">Kirim ke reporter dalam radius</button>
+        <span id="alert-result" class="muted"></span>
+      </form>
+    </dialog>
+
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-      const map = L.map("map").setView([-6.9, 110.62], 10);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(map);
-      const layer = L.layerGroup().addTo(map);
-      const userLayer = L.layerGroup().addTo(map);
-      const status = document.querySelector("#status");
-      const urgency = document.querySelector("#urgency");
-      const distance = document.querySelector("#distance");
-      const distanceLabel = document.querySelector("#distance-label");
-      const fallbackLocation = { lat: -6.9218, lon: 110.5157, label: "Demo location: Sayung" };
-      let currentLocation = fallbackLocation;
+      const map=L.map("map").setView([-6.9,110.62],10);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,attribution:"&copy; OpenStreetMap"}).addTo(map);
+      const clusterLayer=L.layerGroup().addTo(map),reportLayer=L.layerGroup().addTo(map),userLayer=L.layerGroup().addTo(map);
+      const $=s=>document.querySelector(s), statusEl=$("#status");
+      const fallbackLocation={lat:-6.9218,lon:110.5157,label:"posisi demo Sayung"};
+      let currentLocation=fallbackLocation,organizations=[];
 
-      function color(risk) {
-        if (risk >= 0.75) return "#c0392b";
-        if (risk >= 0.55) return "#d68910";
-        return "#2874a6";
+      const escapeHtml=value=>String(value??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;");
+      const riskColor=risk=>risk>=.75?"#b42318":risk>=.55?"#b54708":"#176b3a";
+      const badgeMap={critical:"kritis",high:"tinggi",medium:"sedang",low:"rendah",new:"baru",verified:"terverifikasi",in_progress:"ditangani",resolved:"selesai",rejected:"review"};
+      const badges=obj=>Object.entries(obj||{}).map(([key,count])=>`<span class="pill">${escapeHtml(badgeMap[key]||key)} ${count}</span>`).join("");
+
+      function setLocation(location){ currentLocation=location; userLayer.clearLayers(); L.circleMarker([location.lat,location.lon],{radius:7,color:"#14532d",fillColor:"#86b98f",fillOpacity:.9}).addTo(userLayer).bindPopup(escapeHtml(location.label)); }
+      function setMode(){ const isPublic=$("#view").value==="public"; $("#responder-controls").style.display=isPublic?"none":"flex"; $("#panel-title").textContent=isPublic?"Ringkasan publik":"Antrean responder"; $("#privacy-label").textContent=isPublic?"Agregat tanpa PII":"GPS presisi · nomor disembunyikan"; refresh(); }
+      function query(){ const params=new URLSearchParams({view:$("#view").value,category:$("#category").value,hours:$("#hours").value}); if($("#view").value==="responder"){ params.set("urgency",$("#urgency").value); params.set("lat",currentLocation.lat); params.set("lon",currentLocation.lon); params.set("max_distance_km",$("#distance").value); } return params.toString(); }
+      function reportCard(report){
+        const image=report.image_url?`<img src="${escapeHtml(report.image_url)}" alt="Foto laporan" loading="lazy" referrerpolicy="no-referrer" />`:"";
+        return `<div class="report"><div class="row"><b>${escapeHtml(report.reporter_alias)}</b><span class="pill">${escapeHtml(badgeMap[report.response_status]||report.response_status)}</span></div><div>${badges({[report.category]:1,[report.severity]:1})}</div>${image}<p>${escapeHtml(report.ai_summary||report.text)}</p><div class="muted">AI ${Math.round(report.ai_confidence*100)}% · ${escapeHtml(report.triage_source)}${report.review_required?" · perlu review":""}</div><div>${(report.needs||[]).map(n=>`<span class="pill">${escapeHtml(n)}</span>`).join("")}</div><div class="actions"><button class="small" data-action="status" data-id="${report.id}">Update status</button><button class="small" data-action="contact" data-id="${report.id}">Hubungi via sistem</button></div></div>`;
       }
-
-      function updateDistanceLabel() {
-        distanceLabel.textContent = `${Number(distance.value).toLocaleString()} km`;
+      function regionCard(region,isPublic){
+        const contacts=isPublic?"":(region.nearest_contacts||[]).map(c=>`<div class="contact"><b>${escapeHtml(c.name)}</b> · ${escapeHtml(c.type)} · ${c.distance_km} km${c.phone?` · ${escapeHtml(c.phone)}`:""}</div>`).join("");
+        const reports=isPublic?"":(region.reports||[]).slice(0,5).map(reportCard).join("");
+        const actions=isPublic?"":`<div class="actions"><button class="small" data-action="autp" data-id="${region.id}">Kirim reminder AUTP</button></div>`;
+        return `<section class="region"><div class="row"><strong>${escapeHtml(region.name)}</strong><span class="risk" style="background:${riskColor(region.risk_score)}">${Math.round(region.risk_score*100)} risiko</span></div><p>${escapeHtml(region.last_summary)}</p><div>${badges(region.category_counts)}${badges(region.urgency_counts)}</div><div class="muted">${region.report_count} laporan${region.distance_km!=null?` · ${region.distance_km} km`:""} · kebutuhan: ${Object.keys(region.aggregate_needs||{}).join(", ")||"belum terdata"}</div>${contacts}${actions}${reports}</section>`;
       }
+      function drawMap(regions,isPublic){ clusterLayer.clearLayers(); reportLayer.clearLayers(); for(const region of regions){ const marker=L.circleMarker([region.lat,region.lon],{radius:12+Math.min(region.report_count,12),color:riskColor(region.risk_score),fillColor:riskColor(region.risk_score),fillOpacity:.72}).addTo(clusterLayer); marker.bindPopup(`<b>${escapeHtml(region.name)}</b><br>${region.report_count} laporan<br>${escapeHtml(region.last_summary)}`); if(!isPublic) for(const report of region.reports||[]){ if(report.lat==null||report.lon==null) continue; L.circleMarker([report.lat,report.lon],{radius:6,color:"#fff",weight:2,fillColor:riskColor(SEVERITY_RISK[report.severity]||.3),fillOpacity:1}).addTo(reportLayer).bindPopup(`<b>${escapeHtml(report.reporter_alias)}</b><br>${escapeHtml(report.category)} · ${escapeHtml(report.severity)}<br>${escapeHtml(report.ai_summary)}`); } } }
+      const SEVERITY_RISK={critical:.95,high:.8,medium:.6,low:.3};
 
-      function escapeHtml(value) {
-        return String(value)
-          .replaceAll("&", "&amp;")
-          .replaceAll("<", "&lt;")
-          .replaceAll(">", "&gt;")
-          .replaceAll('"', "&quot;")
-          .replaceAll("'", "&#39;");
+      async function refresh(){
+        try{ $("#distance-label").textContent=`${Number($("#distance").value).toLocaleString("id-ID")} km`; const response=await fetch(`/api/regions?${query()}`); if(!response.ok) throw new Error(await response.text()); const regions=await response.json(); const isPublic=$("#view").value==="public"; drawMap(regions,isPublic); $("#regions").innerHTML=regions.length?regions.map(r=>regionCard(r,isPublic)).join(""):`<p class="muted">Belum ada laporan sesuai filter.</p>`; const totals=regions.reduce((a,r)=>({reports:a.reports+r.report_count,critical:a.critical+(r.urgency_counts.critical||0),handled:a.handled+(r.progress.verified||0)+(r.progress.in_progress||0)+(r.progress.resolved||0)}),{reports:0,critical:0,handled:0}); $("#stat-reports").textContent=totals.reports; $("#stat-critical").textContent=totals.critical; $("#stat-handled").textContent=totals.handled; statusEl.textContent=`diperbarui ${new Date().toLocaleTimeString("id-ID")}`; }catch(error){ statusEl.textContent=`gagal memuat: ${error.message}`; }
       }
+      async function api(url,options={}){ const response=await fetch(url,{headers:{"Content-Type":"application/json",...(options.headers||{})},...options}); const data=await response.json().catch(()=>({})); if(!response.ok) throw new Error(data.detail||"Permintaan gagal"); return data; }
 
-      function reportPreview(report) {
-        const bits = [report.category, report.severity];
-        if (report.medical_needed) bits.push("medical");
-        if (report.location_label) bits.push(report.location_label);
-        return bits.join(" · ");
-      }
+      $("#regions").addEventListener("click",async event=>{ const button=event.target.closest("button[data-action]"); if(!button) return; if(!organizations.length){ statusEl.textContent="Organisasi demo belum tersedia"; return; } const id=Number(button.dataset.id),org=organizations.find(item=>item.id===Number($("#organization").value))||organizations[0]; try{ if(button.dataset.action==="status"){ const next=prompt("Status: verified, in_progress, resolved, rejected","verified"); if(!next) return; const note=prompt("Catatan untuk petani","")||""; const result=await api(`/api/reports/${id}/status`,{method:"POST",body:JSON.stringify({status:next,organization_id:org.id,note})}); statusEl.textContent=`Update oleh ${result.organization_name}; WA ${result.notification_status}`; } if(button.dataset.action==="contact"){ const message=prompt("Pesan yang diteruskan ke petani","Tim kami ingin memastikan kebutuhan dan akses menuju lokasi."); if(!message) return; const result=await api(`/api/reports/${id}/contact`,{method:"POST",body:JSON.stringify({organization_id:org.id,message})}); statusEl.textContent=`Pesan WA ${result.notification_status}`; } if(button.dataset.action==="autp"){ const result=await api(`/api/regions/${id}/autp-reminder`,{method:"POST"}); statusEl.textContent=`Reminder AUTP: ${result.matched_reporters} reporter`; } await refresh(); }catch(error){ statusEl.textContent=error.message; } });
 
-      function setOperatorLocation(location) {
-        currentLocation = location;
-        userLayer.clearLayers();
-        L.circleMarker([location.lat, location.lon], {
-          radius: 7,
-          color: "#1f618d",
-          fillColor: "#85c1e9",
-          fillOpacity: 0.9
-        }).addTo(userLayer).bindPopup(location.label);
-      }
+      $("#use-location").addEventListener("click",()=>{ if(!navigator.geolocation){ setLocation(fallbackLocation); return refresh(); } statusEl.textContent="mengambil lokasi..."; navigator.geolocation.getCurrentPosition(pos=>{ setLocation({lat:pos.coords.latitude,lon:pos.coords.longitude,label:"lokasi responder"}); map.setView([pos.coords.latitude,pos.coords.longitude],11); refresh(); },()=>{ setLocation(fallbackLocation); statusEl.textContent="izin lokasi ditolak; memakai Sayung"; refresh(); },{enableHighAccuracy:true,timeout:8000,maximumAge:60000}); });
+      $("#send-demo").addEventListener("click",async()=>{ try{ statusEl.textContent="mengirim demo..."; const result=await api("/demo/reports",{method:"POST",body:JSON.stringify({sender:`demo-${Date.now()}`,text:"banjir darurat di Sayung Demak, jalan putus, ada lansia sakit perlu medis dan evakuasi",lat:-6.919,lon:110.518,location_label:"Sayung, Demak"})}); statusEl.textContent=`${result.reply.split("\n")[0]}`; await refresh(); }catch(error){statusEl.textContent=error.message;} });
+      $("#open-alert").addEventListener("click",()=>$("#alert-dialog").showModal()); $("#close-alert").addEventListener("click",()=>$("#alert-dialog").close());
+      $("#alert-form").addEventListener("submit",async event=>{ event.preventDefault(); const values=Object.fromEntries(new FormData(event.currentTarget)); values.lat=Number(values.lat); values.lon=Number(values.lon); values.radius_km=Number(values.radius_km); try{ const result=await api("/api/admin/alerts",{method:"POST",body:JSON.stringify(values)}); $("#alert-result").textContent=`Terkirim/dicatat untuk ${result.delivery_count} reporter: ${JSON.stringify(result.delivery_statuses)}`; }catch(error){$("#alert-result").textContent=error.message;} });
+      for(const id of ["#view","#category","#hours","#urgency"]) $(id).addEventListener("change",id==="#view"?setMode:refresh); $("#distance").addEventListener("change",refresh);
 
-      function queryString() {
-        const params = new URLSearchParams({
-          urgency: urgency.value,
-          lat: currentLocation.lat,
-          lon: currentLocation.lon,
-          max_distance_km: distance.value
-        });
-        return params.toString();
-      }
-
-      async function refresh() {
-        updateDistanceLabel();
-        const regions = await fetch(`/api/regions?${queryString()}`).then((res) => res.json());
-        layer.clearLayers();
-        document.querySelector("#regions").innerHTML = regions.length ? regions.map((region) => `
-          <div class="region">
-            <div><strong>${region.name}</strong> <span class="risk" style="background:${color(region.risk_score)}">${Math.round(region.risk_score * 100)} risk</span></div>
-            <p>${region.last_summary}</p>
-            <div class="muted">${region.distance_km ?? "?"} km from ${currentLocation.label}</div>
-            <small>${region.nearest_resources.map((r) => r.name).join(" · ")}</small>
-            <div style="margin-top:10px; display:grid; gap:8px;">
-              ${region.reports.slice(0, 3).map((report) => `
-                <div style="padding:8px 10px; border:1px solid #edf2f7; border-radius:6px; background:#fbfdff;">
-                  <div style="font-size:12px; font-weight:700; margin-bottom:4px;">${escapeHtml(reportPreview(report))}</div>
-                  <div style="font-size:13px; line-height:1.35; color:#243447;">${escapeHtml(report.text)}</div>
-                </div>
-              `).join("")}
-            </div>
-          </div>
-        `).join("") : `<p class="muted">No regions match the current filters.</p>`;
-        for (const region of regions) {
-          const recentReports = region.reports.slice(0, 3).map((report) => `
-            <div style="margin-top:8px; padding-top:8px; border-top:1px solid rgba(0,0,0,.08);">
-              <div style="font-size:12px; font-weight:700; margin-bottom:3px;">${escapeHtml(reportPreview(report))}</div>
-              <div style="font-size:12px; line-height:1.35;">${escapeHtml(report.text)}</div>
-            </div>
-          `).join("");
-          const marker = L.circleMarker([region.lat, region.lon], {
-            radius: 12 + region.reports.length * 2,
-            color: color(region.risk_score),
-            fillColor: color(region.risk_score),
-            fillOpacity: 0.72
-          }).addTo(layer);
-          marker.bindPopup(`
-            <strong>${escapeHtml(region.name)}</strong><br>
-            ${escapeHtml(region.last_summary)}<br>
-            ${region.distance_km ?? "?"} km away
-            <div style="margin-top:8px; max-width:260px;">${recentReports || ""}</div>
-          `);
-        }
-      }
-
-      document.querySelector("#use-location").addEventListener("click", () => {
-        if (!navigator.geolocation) {
-          status.textContent = "geolocation unavailable; using demo location";
-          setOperatorLocation(fallbackLocation);
-          refresh();
-          return;
-        }
-
-        status.textContent = "getting location...";
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            setOperatorLocation({
-              lat: position.coords.latitude,
-              lon: position.coords.longitude,
-              label: "Live location"
-            });
-            status.textContent = "using live location";
-            refresh();
-          },
-          () => {
-            status.textContent = "location blocked; using demo location";
-            setOperatorLocation(fallbackLocation);
-            refresh();
-          },
-          { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
-        );
-      });
-
-      urgency.addEventListener("change", refresh);
-      distance.addEventListener("input", refresh);
-
-      document.querySelector("#send-demo").addEventListener("click", async () => {
-        status.textContent = "sending...";
-        await fetch("/demo/reports", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sender: "whatsapp:+628-demo",
-            text: "banjir besar di Sayung Demak, jalan putus, ada lansia sakit perlu puskesmas",
-            image_url: "https://example.com/flooded-field.jpg"
-          })
-        });
-        status.textContent = "demo report received";
-        await refresh();
-      });
-
-      setOperatorLocation(fallbackLocation);
-      refresh();
-      setInterval(refresh, 5000);
+      async function boot(){ setLocation(fallbackLocation); organizations=await fetch("/api/organizations").then(r=>r.json()).catch(()=>[]); $("#organization").innerHTML=organizations.map(org=>`<option value="${org.id}"${org.name==="PMI Demak"?" selected":""}>${escapeHtml(org.name)}</option>`).join(""); setMode(); setInterval(refresh,10000); }
+      boot();
     </script>
   </body>
 </html>

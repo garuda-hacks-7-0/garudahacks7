@@ -27,7 +27,19 @@ class MockGeocoder:
 
     def resolve(self, text: str, lat: float | None = None, lon: float | None = None, label: str | None = None) -> GeoResult | None:
         if lat is not None and lon is not None:
-            return GeoResult(lat, lon, label or "Shared WhatsApp location", label or f"Shared Location {lat:.4f},{lon:.4f}")
+            display_label = label or "Shared WhatsApp location"
+            region_name = f"Area {lat:.2f},{lon:.2f}"
+            if label:
+                lower_label = label.lower()
+                for key, known_place in self.places.items():
+                    if key in lower_label:
+                        region_name = known_place.label
+                        break
+                else:
+                    region_name = ", ".join(
+                        part.strip() for part in label.split(",")[:2] if part.strip()
+                    ) or region_name
+            return GeoResult(lat, lon, display_label, region_name)
 
         lower = f"{text} {label or ''}".lower()
 

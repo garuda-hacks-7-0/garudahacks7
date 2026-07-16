@@ -17,6 +17,7 @@ env/
 # Local config and databases
 .env
 .env.*
+!.env.example
 *.db
 *.sqlite
 *.sqlite3
