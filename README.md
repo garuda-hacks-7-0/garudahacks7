@@ -29,6 +29,28 @@ Open:
 - API docs: <http://127.0.0.1:8000/docs>
 - Demo dashboard: <http://127.0.0.1:8000/static/dashboard.html>
 
+## Testing with Live WhatsApp (Twilio & Ngrok Setup)
+
+To test the bot using a real WhatsApp account, follow these steps to expose your local server and configure your Twilio Sandbox:
+
+### 1. Expose Local Port with Ngrok
+In a separate terminal window, start `ngrok` on port `8000`:
+```bash
+ngrok http 8000
+```
+This will generate a public URL like `https://xxxx-xxxx.ngrok-free.app`.
+
+### 2. Configure Twilio Sandbox
+1. Go to your **Twilio Console** -> **Develop** -> **Messaging** -> **Try it out** -> **Send a WhatsApp Message** (to access the sandbox settings).
+2. Look for the input field: **"When a message comes in"** (Webhook configuration).
+3. Paste your public Ngrok HTTPS URL, appending `/webhooks/whatsapp` to the end. For example:
+   `https://xxxx-xxxx.ngrok-free.app/webhooks/whatsapp`
+4. Set the HTTP method next to it to **`POST`**.
+5. Save the configuration.
+
+### 3. Send Messages
+Send messages from your WhatsApp to the Twilio Sandbox number. The webhook calls will route to your local server and respond with stateful triage questions!
+
 ## Demo webhook calls
 
 Twilio's WhatsApp sandbox posts form fields like `From`, `Body`, `MediaUrl0`, `Latitude`, and `Longitude`.
