@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Form
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -10,26 +10,41 @@ router = APIRouter()
 triage = TriageService()
 
 
-@router.post("/webhooks/whatsapp", response_class=PlainTextResponse)
-def whatsapp_webhook(
-    From: str = Form(default="unknown"),
-    Body: str = Form(default=""),
-    MediaUrl0: str | None = Form(default=None),
-    Latitude: float | None = Form(default=None),
-    Longitude: float | None = Form(default=None),
-    Address: str | None = Form(default=None),
-    db: Session = Depends(get_db),
-) -> str:
-    report, reply = triage.ingest(
-        db,
-        sender=From,
-        text=Body,
-        image_url=MediaUrl0,
-        lat=Latitude,
-        lon=Longitude,
-        location_label=Address,
+def _twilio_message_response(message: str) -> Response:
+    escaped = (
+        message.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&apos;")
     )
-    return f"{reply}\n\n(report_id: {report.id})"
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        f"<Response><Message>{escaped}</Message></Response>"
+    )
+    return Response(content=xml, media_type="text/xml")
+
+
+@router.post("/webhooks/whatsapp")
+def whatsapp_webhook(
+    from_number: str = Form(default="unknown", alias="From"),
+    body: str = Form(default="", alias="Body"),
+    media_url_0: str | None = Form(default=None, alias="MediaUrl0"),
+    latitude: float | None = Form(default=None, alias="Latitude"),
+    longitude: float | None = Form(default=None, alias="Longitude"),
+    address: str | None = Form(default=None, alias="Address"),
+    db: Session = Depends(get_db),
+) -> Response:
+    _, reply = triage.ingest(
+        db,
+        sender=from_number,
+        text=body,
+        image_url=media_url_0,
+        lat=latitude,
+        lon=longitude,
+        location_label=address,
+    )
+    return _twilio_message_response(reply)
 
 
 @router.post("/demo/reports", response_model=WebhookResponse)
@@ -44,4 +59,3 @@ def demo_report(payload: IncomingReport, db: Session = Depends(get_db)) -> Webho
         location_label=payload.location_label,
     )
     return WebhookResponse(reply=reply, report_id=report.id, status=report.status)
-

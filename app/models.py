@@ -28,6 +28,17 @@ class Region(Base):
     reports: Mapped[list["Report"]] = relationship(back_populates="region")
 
 
+class ConversationState(Base):
+    __tablename__ = "conversation_states"
+
+    sender: Mapped[str] = mapped_column(String(80), primary_key=True, index=True)
+    report_id: Mapped[int] = mapped_column(ForeignKey("reports.id"), index=True)
+    pending_fields: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    report: Mapped["Report"] = relationship()
+
+
 class Report(Base):
     __tablename__ = "reports"
 

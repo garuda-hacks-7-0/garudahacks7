@@ -76,6 +76,22 @@
         distanceLabel.textContent = `${Number(distance.value).toLocaleString()} km`;
       }
 
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function reportPreview(report) {
+        const bits = [report.category, report.severity];
+        if (report.medical_needed) bits.push("medical");
+        if (report.location_label) bits.push(report.location_label);
+        return bits.join(" · ");
+      }
+
       function setOperatorLocation(location) {
         currentLocation = location;
         userLayer.clearLayers();
@@ -107,16 +123,35 @@
             <p>${region.last_summary}</p>
             <div class="muted">${region.distance_km ?? "?"} km from ${currentLocation.label}</div>
             <small>${region.nearest_resources.map((r) => r.name).join(" · ")}</small>
+            <div style="margin-top:10px; display:grid; gap:8px;">
+              ${region.reports.slice(0, 3).map((report) => `
+                <div style="padding:8px 10px; border:1px solid #edf2f7; border-radius:6px; background:#fbfdff;">
+                  <div style="font-size:12px; font-weight:700; margin-bottom:4px;">${escapeHtml(reportPreview(report))}</div>
+                  <div style="font-size:13px; line-height:1.35; color:#243447;">${escapeHtml(report.text)}</div>
+                </div>
+              `).join("")}
+            </div>
           </div>
         `).join("") : `<p class="muted">No regions match the current filters.</p>`;
         for (const region of regions) {
+          const recentReports = region.reports.slice(0, 3).map((report) => `
+            <div style="margin-top:8px; padding-top:8px; border-top:1px solid rgba(0,0,0,.08);">
+              <div style="font-size:12px; font-weight:700; margin-bottom:3px;">${escapeHtml(reportPreview(report))}</div>
+              <div style="font-size:12px; line-height:1.35;">${escapeHtml(report.text)}</div>
+            </div>
+          `).join("");
           const marker = L.circleMarker([region.lat, region.lon], {
             radius: 12 + region.reports.length * 2,
             color: color(region.risk_score),
             fillColor: color(region.risk_score),
             fillOpacity: 0.72
           }).addTo(layer);
-          marker.bindPopup(`<strong>${region.name}</strong><br>${region.last_summary}<br>${region.distance_km ?? "?"} km away`);
+          marker.bindPopup(`
+            <strong>${escapeHtml(region.name)}</strong><br>
+            ${escapeHtml(region.last_summary)}<br>
+            ${region.distance_km ?? "?"} km away
+            <div style="margin-top:8px; max-width:260px;">${recentReports || ""}</div>
+          `);
         }
       }
 

@@ -45,7 +45,7 @@ class MockClassifier:
             severity = "low"
 
         missing_fields: list[str] = []
-        if not any(word in lower for word in ["demak", "sayung", "karanganyar", "kudus", "semarang"]) and "lat:" not in lower:
+        if not any(word in lower for word in ["demak", "sayung", "karanganyar", "kudus", "semarang", "depok", "cibubur", "cimanggis"]) and "lat:" not in lower:
             missing_fields.append("location")
         if not any(word in lower for word in ["ringan", "sedang", "parah", "darurat", "besar", "putus", "tinggi", "lutut", "dada"]):
             missing_fields.append("severity")
