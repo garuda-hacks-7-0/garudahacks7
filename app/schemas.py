@@ -37,11 +37,28 @@ class ReportUpdateOut(BaseModel):
     created_at: datetime
 
 
+class FarmerProfileOut(BaseModel):
+    name: str | None = None
+    is_farmer: bool | None = None
+    is_local_farmer: bool | None = None
+    home_location: str | None = None
+    available_for_follow_up: bool | None = None
+    privacy_consent_at: datetime | None = None
+    privacy_consent_version: str | None = None
+    privacy_consent_method: str | None = None
+    profile_summary: str = ""
+
+
 class ReportOut(BaseModel):
     id: int
     reporter_alias: str
     text: str
+    incident_description: str
     image_url: str | None
+    evidence_urls: list[str] = Field(default_factory=list)
+    evidence_count: int
+    evidence_target: int
+    evidence_unavailable: bool
     category: str
     severity: str
     medical_needed: bool
@@ -50,10 +67,18 @@ class ReportOut(BaseModel):
     ai_confidence: float
     triage_source: str
     review_required: bool
+    readiness_score: int
+    readiness_critique: list[str] = Field(default_factory=list)
+    farmer_profile: FarmerProfileOut
     intake_status: str
     response_status: str
     lat: float | None
     lon: float | None
+    location_shared: bool
+    location_verification_status: str
+    village: str
+    district: str
+    regency: str
     location_label: str | None
     created_at: datetime
     updates: list[ReportUpdateOut] = Field(default_factory=list)
@@ -113,16 +138,6 @@ class ReportStatusUpdateResult(BaseModel):
     report_id: int
     response_status: str
     organization_name: str
-    notification_status: str
-
-
-class MediatedContactIn(BaseModel):
-    organization_id: int
-    message: str = Field(min_length=3, max_length=1000)
-
-
-class NotificationResult(BaseModel):
-    report_id: int
     notification_status: str
 
 

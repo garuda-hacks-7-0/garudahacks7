@@ -13,11 +13,12 @@ class Settings(BaseSettings):
     openrouter_fallback_models: str = "google/gemini-2.5-flash"
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_timeout_seconds: float = 25.0
-    app_public_url: str = "http://localhost:8000"
+    app_public_url: str = "http://localhost:8200"
 
     twilio_account_sid: str | None = None
     twilio_auth_token: str | None = None
     twilio_whatsapp_from: str | None = None
+    twilio_consent_content_sid: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -37,4 +38,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

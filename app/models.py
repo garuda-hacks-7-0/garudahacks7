@@ -65,16 +65,48 @@ class ConversationState(Base):
     report: Mapped["Report"] = relationship()
 
 
+class FarmerProfile(Base):
+    """Private, persistent facts learned from a reporter across conversations."""
+
+    __tablename__ = "farmer_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    sender: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    is_farmer: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_local_farmer: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    home_location: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    available_for_follow_up: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    privacy_consent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    privacy_consent_version: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    privacy_consent_method: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    profile_summary: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    reports: Mapped[list["Report"]] = relationship(back_populates="farmer_profile")
+
+
 class Report(Base):
     __tablename__ = "reports"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     sender: Mapped[str] = mapped_column(String(80), index=True)
     text: Mapped[str] = mapped_column(Text, default="")
+    incident_description: Mapped[str] = mapped_column(Text, default="")
     image_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    evidence_urls: Mapped[list[str]] = mapped_column(JSON, default=list)
+    evidence_unavailable: Mapped[bool] = mapped_column(Boolean, default=False)
     category: Mapped[str] = mapped_column(String(80), default="unknown", index=True)
     severity: Mapped[str] = mapped_column(String(20), default="unknown", index=True)
+    severity_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
     medical_needed: Mapped[bool] = mapped_column(Boolean, default=False)
+    medical_status_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    reporter_is_farmer: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    reporter_is_local: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    follow_up_available: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     needs: Mapped[list[str]] = mapped_column(JSON, default=list)
     ai_summary: Mapped[str] = mapped_column(Text, default="")
     ai_confidence: Mapped[float] = mapped_column(Float, default=0.0)
@@ -87,8 +119,20 @@ class Report(Base):
         String(30), default=ResponseStatus.new.value, index=True
     )
     follow_up_question: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    readiness_score: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    readiness_critique: Mapped[list[str]] = mapped_column(JSON, default=list)
+    farmer_profile_id: Mapped[int | None] = mapped_column(
+        ForeignKey("farmer_profiles.id"), nullable=True, index=True
+    )
     lat: Mapped[float | None] = mapped_column(Float, nullable=True)
     lon: Mapped[float | None] = mapped_column(Float, nullable=True)
+    location_shared: Mapped[bool] = mapped_column(Boolean, default=False)
+    location_verification_status: Mapped[str] = mapped_column(
+        String(30), default="missing", index=True
+    )
+    village: Mapped[str] = mapped_column(String(160), default="")
+    district: Mapped[str] = mapped_column(String(160), default="")
+    regency: Mapped[str] = mapped_column(String(160), default="")
     location_label: Mapped[str | None] = mapped_column(String(300), nullable=True)
     region_id: Mapped[int | None] = mapped_column(
         ForeignKey("regions.id"), nullable=True, index=True
@@ -99,6 +143,7 @@ class Report(Base):
     )
 
     region: Mapped[Region | None] = relationship(back_populates="reports")
+    farmer_profile: Mapped[FarmerProfile | None] = relationship(back_populates="reports")
     updates: Mapped[list["ReportUpdate"]] = relationship(
         back_populates="report", cascade="all, delete-orphan", order_by="ReportUpdate.created_at"
     )
@@ -148,6 +193,7 @@ class InboundMessage(Base):
     sender: Mapped[str] = mapped_column(String(80), index=True)
     body: Mapped[str] = mapped_column(Text, default="")
     media_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    button_payload: Mapped[str | None] = mapped_column(String(128), nullable=True)
     lat: Mapped[float | None] = mapped_column(Float, nullable=True)
     lon: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

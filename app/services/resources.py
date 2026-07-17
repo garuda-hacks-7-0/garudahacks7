@@ -19,11 +19,25 @@ class ResourceService:
         return sorted(resources, key=lambda item: km_between(lat, lon, item.lat, item.lon))[:limit]
 
     def nearest_contacts(
-        self, db: Session, lat: float, lon: float, limit: int = 3
+        self,
+        db: Session,
+        lat: float,
+        lon: float,
+        limit: int = 3,
+        contact_type: str | None = None,
+        max_distance_km: float | None = None,
     ) -> list[LocalContact]:
-        contacts = db.query(LocalContact).all()
+        query = db.query(LocalContact)
+        if contact_type:
+            query = query.filter(LocalContact.type == contact_type)
+        contacts = query.all()
+        if max_distance_km is not None:
+            contacts = [
+                contact
+                for contact in contacts
+                if km_between(lat, lon, contact.lat, contact.lon) <= max_distance_km
+            ]
         return sorted(
             contacts,
             key=lambda item: km_between(lat, lon, item.lat, item.lon),
         )[:limit]
-

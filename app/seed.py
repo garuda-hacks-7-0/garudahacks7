@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 
 from app.models import (
+    FarmerProfile,
     LocalContact,
     Organization,
     Region,
@@ -47,12 +48,18 @@ DEMO_REPORTS = [
     ("Depok", -6.4102, 106.8010, "longsor parah menutup akses lahan, ada warga luka perlu medis"),
 ]
 
+SEED_EVIDENCE_URLS = [
+    "https://images.unsplash.com/photo-1547683905-f686c993aae5?auto=format&fit=crop&w=900&q=70",
+    "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=900&q=70",
+]
+
 
 def seed(db: Session) -> None:
     _seed_organizations(db)
     _seed_contacts(db)
     _seed_resources(db)
     _seed_reports(db)
+    _backfill_seed_profiles(db)
     _seed_updates(db)
 
 
@@ -103,7 +110,7 @@ def _seed_reports(db: Session) -> None:
     if db.query(Report).count() >= len(DEMO_REPORTS):
         return
     classifier = MockClassifier()
-    triage = TriageService(classifier=classifier)
+    triage = TriageService(classifier=classifier, privacy_consent_required=False)
     existing_senders = {sender for (sender,) in db.query(Report.sender).all()}
     regions = {region.name: region for region in db.query(Region).all()}
     touched_regions: set[str] = set()
@@ -145,6 +152,7 @@ def _seed_reports(db: Session) -> None:
                 response_status="new",
                 lat=lat,
                 lon=lon,
+                location_verification_status="verified_geocoded",
                 location_label=label,
                 region=region,
             )
@@ -153,6 +161,48 @@ def _seed_reports(db: Session) -> None:
     db.commit()
     for label in touched_regions:
         triage.recalculate_region(db, regions[label])
+
+
+def _backfill_seed_profiles(db: Session) -> None:
+    reports = db.query(Report).filter(Report.sender.like("seed-%")).all()
+    for report in reports:
+        profile = (
+            db.query(FarmerProfile)
+            .filter(FarmerProfile.sender == report.sender)
+            .one_or_none()
+        )
+        if profile is None:
+            profile = FarmerProfile(sender=report.sender)
+        profile.is_farmer = True
+        profile.is_local_farmer = True
+        profile.available_for_follow_up = True
+        profile.home_location = report.location_label
+        profile.profile_summary = (
+            f"petani/penggarap; petani setempat; bersedia dihubungi; "
+            f"wilayah {report.location_label}"
+        )
+        report.farmer_profile = profile
+        report.incident_description = report.incident_description or report.text
+        location_parts = [part.strip() for part in (report.location_label or "").split(",")]
+        report.village = report.village or (location_parts[0] if len(location_parts) > 1 else "Pusat")
+        report.district = report.district or (location_parts[0] if location_parts else "Pusat")
+        report.regency = report.regency or (location_parts[-1] if location_parts else "Demo")
+        report.evidence_urls = SEED_EVIDENCE_URLS
+        report.image_url = SEED_EVIDENCE_URLS[0]
+        report.evidence_unavailable = False
+        report.severity_confirmed = True
+        report.medical_status_confirmed = True
+        report.reporter_is_farmer = True
+        report.reporter_is_local = True
+        report.follow_up_available = True
+        report.readiness_score = 100
+        report.readiness_critique = []
+        report.status = "complete"
+        report.review_required = (
+            report.ai_confidence < 0.65 or report.category == "unknown"
+        )
+        db.add_all([profile, report])
+    db.commit()
 
 
 def _seed_updates(db: Session) -> None:

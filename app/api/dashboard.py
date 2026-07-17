@@ -17,9 +17,8 @@ from app.schemas import (
     AlertCreateIn,
     AlertOut,
     BroadcastResult,
+    FarmerProfileOut,
     LocalContactOut,
-    MediatedContactIn,
-    NotificationResult,
     OrganizationOut,
     RegionPublicOut,
     RegionResponderOut,
@@ -31,6 +30,7 @@ from app.schemas import (
 from app.services.classifier import SEVERITY_ORDER
 from app.services.notifications import NotificationService
 from app.services.resources import ResourceService, km_between
+from app.services.triage import EVIDENCE_TARGET
 
 
 router = APIRouter(prefix="/api")
@@ -152,41 +152,6 @@ def update_report_status(
     )
 
 
-@router.post("/reports/{report_id}/contact", response_model=NotificationResult)
-def contact_reporter(
-    report_id: int,
-    payload: MediatedContactIn,
-    db: Session = Depends(get_db),
-) -> NotificationResult:
-    report = db.query(Report).filter(Report.id == report_id).one_or_none()
-    organization = (
-        db.query(Organization)
-        .filter(
-            Organization.id == payload.organization_id,
-            Organization.verified.is_(True),
-        )
-        .one_or_none()
-    )
-    if report is None:
-        raise HTTPException(status_code=404, detail="Report not found")
-    if organization is None:
-        raise HTTPException(status_code=400, detail="Verified organization is required")
-
-    delivery = notifications.send(
-        db,
-        recipient=report.sender,
-        body=(
-            f"Pesan untuk TT-{report.id:04d} dari {organization.name}: "
-            f"{payload.message.strip()} Balas pesan ini untuk meneruskan jawaban melalui sistem."
-        ),
-        kind="mediated_contact",
-        report_id=report.id,
-    )
-    return NotificationResult(
-        report_id=report.id, notification_status=delivery.delivery_status
-    )
-
-
 @router.get("/regions", response_model=None)
 def list_regions(
     view: str = Query(default="public", pattern="^(public|responder)$"),
@@ -238,7 +203,12 @@ def list_regions(
 
         nearest_contacts = []
         for contact in resources.nearest_contacts(
-            db, region.lat, region.lon, limit=3
+            db,
+            region.lat,
+            region.lon,
+            limit=3,
+            contact_type="desa",
+            max_distance_km=50,
         ):
             nearest_contacts.append(
                 LocalContactOut(
@@ -301,7 +271,14 @@ def region_detail(
                 km_between(region.lat, region.lon, contact.lat, contact.lon), 1
             ),
         )
-        for contact in resources.nearest_contacts(db, region.lat, region.lon, limit=3)
+        for contact in resources.nearest_contacts(
+            db,
+            region.lat,
+            region.lon,
+            limit=3,
+            contact_type="desa",
+            max_distance_km=50,
+        )
     ]
     return RegionResponderOut(
         **base,
@@ -333,7 +310,14 @@ def send_autp_reminder(
             detail="Verify at least one flood report before sending an AUTP reminder",
         )
 
-    nearest = resources.nearest_contacts(db, region.lat, region.lon, limit=1)
+    nearest = resources.nearest_contacts(
+        db,
+        region.lat,
+        region.lon,
+        limit=1,
+        contact_type="desa",
+        max_distance_km=50,
+    )
     contact_text = "Hubungi PPL atau dinas pertanian setempat."
     if nearest:
         contact_text = f"Titik bantuan terdekat: {nearest[0].name}"
@@ -347,7 +331,11 @@ def send_autp_reminder(
         "intensitas kerusakan minimal 75%. Simpan foto, lokasi, dan waktu kejadian. "
         f"{contact_text}"
     )
-    unique_reports = {report.sender: report for report in flood_reports}
+    unique_reports = {
+        report.sender: report
+        for report in flood_reports
+        if report.reporter_is_local is True
+    }
     statuses: Counter[str] = Counter()
     for report in unique_reports.values():
         delivery = notifications.send(
@@ -376,7 +364,11 @@ def create_alert(
 
     candidates = (
         db.query(Report)
-        .filter(Report.lat.is_not(None), Report.lon.is_not(None))
+        .filter(
+            Report.lat.is_not(None),
+            Report.lon.is_not(None),
+            Report.reporter_is_local.is_(True),
+        )
         .order_by(Report.created_at.desc())
         .all()
     )
@@ -440,7 +432,12 @@ def _report_out(report: Report) -> ReportOut:
         id=report.id,
         reporter_alias=f"Petani TT-{report.id:04d}",
         text=report.text,
+        incident_description=report.incident_description,
         image_url=report.image_url,
+        evidence_urls=report.evidence_urls or [],
+        evidence_count=len(report.evidence_urls or []),
+        evidence_target=EVIDENCE_TARGET,
+        evidence_unavailable=report.evidence_unavailable,
         category=report.category,
         severity=report.severity,
         medical_needed=report.medical_needed,
@@ -449,10 +446,44 @@ def _report_out(report: Report) -> ReportOut:
         ai_confidence=report.ai_confidence,
         triage_source=report.triage_source,
         review_required=report.review_required,
+        readiness_score=report.readiness_score,
+        readiness_critique=report.readiness_critique or [],
+        farmer_profile=FarmerProfileOut(
+            name=report.farmer_profile.name if report.farmer_profile else None,
+            is_farmer=report.reporter_is_farmer,
+            is_local_farmer=report.reporter_is_local,
+            home_location=(
+                report.farmer_profile.home_location if report.farmer_profile else None
+            ),
+            available_for_follow_up=report.follow_up_available,
+            privacy_consent_at=(
+                report.farmer_profile.privacy_consent_at
+                if report.farmer_profile
+                else None
+            ),
+            privacy_consent_version=(
+                report.farmer_profile.privacy_consent_version
+                if report.farmer_profile
+                else None
+            ),
+            privacy_consent_method=(
+                report.farmer_profile.privacy_consent_method
+                if report.farmer_profile
+                else None
+            ),
+            profile_summary=(
+                report.farmer_profile.profile_summary if report.farmer_profile else ""
+            ),
+        ),
         intake_status=report.status,
         response_status=report.response_status,
         lat=report.lat,
         lon=report.lon,
+        location_shared=report.location_shared,
+        location_verification_status=report.location_verification_status,
+        village=report.village,
+        district=report.district,
+        regency=report.regency,
         location_label=report.location_label,
         created_at=report.created_at,
         updates=updates,

@@ -43,6 +43,17 @@ async def run_checks(client: httpx.AsyncClient) -> None:
     health = await client.get("/health")
     assert health.status_code == 200 and health.json() == {"status": "ok"}
 
+    consent = await client.post(
+        "/webhooks/whatsapp",
+        data={
+            "From": "demo-smoke-webhook",
+            "Body": "SETUJU",
+            "ButtonText": "SETUJU",
+            "ButtonPayload": "CONSENT_ACCEPT",
+        },
+    )
+    assert consent.status_code == 200
+
     webhook = await client.post(
             "/webhooks/whatsapp",
             data={
@@ -54,8 +65,27 @@ async def run_checks(client: httpx.AsyncClient) -> None:
             },
     )
     assert webhook.status_code == 200
-    assert "Laporan TT-" in webhook.text
-    assert "Nomor telepon tidak ditampilkan" in webhook.text
+    assert webhook.text.endswith("<Response/>")
+
+    from app.db import SessionLocal
+    from app.models import OutboundMessage
+
+    db = SessionLocal()
+    try:
+        outbound = (
+            db.query(OutboundMessage)
+            .filter(
+                OutboundMessage.recipient == "demo-smoke-webhook",
+                OutboundMessage.kind == "intake_reply",
+            )
+            .order_by(OutboundMessage.id.desc())
+            .first()
+        )
+        assert outbound is not None
+        assert "Laporan TT-" in outbound.body
+        assert "Nomor WhatsApp-mu tetap dirahasiakan" in outbound.body
+    finally:
+        db.close()
 
     public = await client.get(
         "/api/regions", params={"view": "public", "category": "flood"}
@@ -71,6 +101,9 @@ async def run_checks(client: httpx.AsyncClient) -> None:
     report = responder.json()[0]["reports"][0]
     assert "sender" not in report
     assert report["reporter_alias"].startswith("Petani TT-")
+    assert 0 <= report["readiness_score"] <= 100
+    assert "farmer_profile" in report
+    assert "farmer_profile" not in str(public.json())
 
     organizations = (await client.get("/api/organizations")).json()
     status = await client.post(
@@ -110,6 +143,7 @@ async def run_checks(client: httpx.AsyncClient) -> None:
     print(
         {
             "health": health.json(),
+            "consent": consent.status_code,
             "webhook": webhook.status_code,
             "public_regions": len(public.json()),
             "responder_regions": len(responder.json()),

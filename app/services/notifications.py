@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import json
 import logging
 
 from sqlalchemy.orm import Session
@@ -41,16 +42,29 @@ class WhatsAppNotifier:
             )
         return self._client
 
-    def send(self, recipient: str, body: str) -> DeliveryResult:
+    def send(
+        self,
+        recipient: str,
+        body: str,
+        *,
+        content_sid: str | None = None,
+        content_variables: dict[str, str] | None = None,
+    ) -> DeliveryResult:
         if not self.enabled or recipient.startswith("seed-") or "demo" in recipient:
             return DeliveryResult(status="simulated")
 
         try:
-            message = self._get_client().messages.create(
-                from_=self.settings.twilio_whatsapp_from,
-                to=recipient,
-                body=body,
-            )
+            message_args = {
+                "from_": self.settings.twilio_whatsapp_from,
+                "to": recipient,
+            }
+            if content_sid:
+                message_args["content_sid"] = content_sid
+                if content_variables:
+                    message_args["content_variables"] = json.dumps(content_variables)
+            else:
+                message_args["body"] = body
+            message = self._get_client().messages.create(**message_args)
             return DeliveryResult(status="sent", provider_sid=message.sid)
         except Exception:
             logger.exception("Twilio WhatsApp delivery failed")
@@ -69,8 +83,16 @@ class NotificationService:
         body: str,
         kind: str,
         report_id: int | None = None,
+        content_sid: str | None = None,
+        content_variables: dict[str, str] | None = None,
+        persist: bool = True,
     ) -> OutboundMessage:
-        result = self.notifier.send(recipient, body)
+        result = self.notifier.send(
+            recipient,
+            body,
+            content_sid=content_sid,
+            content_variables=content_variables,
+        )
         record = OutboundMessage(
             report_id=report_id,
             recipient=recipient,
@@ -79,6 +101,8 @@ class NotificationService:
             delivery_status=result.status,
             provider_sid=result.provider_sid,
         )
+        if not persist:
+            return record
         db.add(record)
         db.commit()
         db.refresh(record)
