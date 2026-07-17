@@ -112,7 +112,7 @@ FORM_REQUIRED_MESSAGE = (
 )
 LOCATION_CHECK_MESSAGE = "Sebentar ya, aku cek dulu lokasi kamu… 📍"
 WELCOME_MESSAGE = (
-    "Halo, terima kasih sudah menghubungi PetaNih! 🌾\n\n"
+    "Halo, terima kasih sudah menghubungi Petani! 🌾\n\n"
     "Untuk membuat laporan, upload minimal satu foto daerah terdampak lalu kirim "
     "data menggunakan form berikut dalam satu pesan.\n\n"
     f"{REPORT_FORM_TEMPLATE}\n\n"
@@ -128,14 +128,14 @@ WELCOME_MESSAGE = (
 CANCEL_FOOTER = "Ketik BATAL untuk membatalkan laporan."
 PRIVACY_CONSENT_VERSION = "2026-07-17-v1"
 PRIVACY_CONSENT_PROMPT = (
-    "Halo, terima kasih sudah menghubungi PetaNih! 🌾\n\n"
-    "Sebelum lanjut, PetaNih perlu menyimpan nomor WhatsApp, foto, lokasi, dan "
+    "Halo, terima kasih sudah menghubungi Petani! 🌾\n\n"
+    "Sebelum lanjut, Petani perlu menyimpan nomor WhatsApp, foto, lokasi, dan "
     "isi laporan untuk verifikasi serta pembaruan status. Data tidak ditampilkan "
     "kepada publik dan kamu dapat meminta penghapusan data.\n\n"
     "Pilih *SETUJU* untuk melanjutkan atau *BATAL* untuk membatalkan."
 )
 PRIVACY_CONSENT_DECLINED = (
-    "Baik, PetaNih tidak akan memproses laporanmu. Kamu bisa menghubungi kami lagi "
+    "Baik, Petani tidak akan memproses laporanmu. Kamu bisa menghubungi kami lagi "
     "kapan saja jika berubah pikiran."
 )
 PRIVACY_CONSENT_ACCEPTED = (
