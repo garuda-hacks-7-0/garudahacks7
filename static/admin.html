@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Panel Admin — Peta.ni</title>
+    <script>if (localStorage.getItem("petani_demo_role") !== "admin") window.location.replace("/login?next=/admin");</script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Merriweather:wght@700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Peta.ni beranda"><img src="/static/assets/petani-logo.svg" alt="" /><span class="brand-word">Peta.<em>ni</em></span></a>
+      <button class="mobile-menu-button" type="button" aria-label="Buka menu" aria-expanded="false">☰</button>
+      <nav class="main-nav" aria-label="Navigasi utama"><a class="nav-link" href="/">Beranda</a><a class="nav-link" href="/map">Peta</a><a class="nav-link" href="/reports">Laporan</a><a class="nav-link active" href="/admin">Admin</a></nav>
+      <div class="header-actions"><button class="button button-primary session-link" data-logout type="button">Keluar</button></div>
+    </header>
+
+    <main class="admin-main">
+      <div class="admin-topbar"><div class="admin-heading"><h1>Panel Admin</h1><p>Kirim alert demo dan periksa pendaftaran lembaga/relawan sebelum mereka mendapat akses operasional.</p></div><a class="button button-outline button-small" href="/register">Buka form registrasi</a></div>
+      <div class="admin-stats"><div class="admin-stat"><strong id="stat-pending">0</strong><span>menunggu verifikasi</span></div><div class="admin-stat"><strong id="stat-verified">0</strong><span>terverifikasi</span></div><div class="admin-stat"><strong id="stat-rejected">0</strong><span>ditolak</span></div><div class="admin-stat"><strong id="stat-alerts">0</strong><span>alert tercatat</span></div></div>
+
+      <div class="admin-grid">
+        <section class="admin-card"><h2>Kirim alert demo</h2><form class="admin-form" id="admin-alert-form">
+          <label class="field"><span>Nama area</span><input name="area_name" value="Sayung, Demak" required /></label>
+          <div class="form-grid-wide"><label class="field"><span>Latitude</span><input name="lat" type="number" step="any" value="-6.9218" required /></label><label class="field"><span>Longitude</span><input name="lon" type="number" step="any" value="110.5157" required /></label></div>
+          <label class="field"><span>Radius (km)</span><input name="radius_km" type="number" min="1" max="500" value="20" required /></label>
+          <label class="field"><span>Sumber</span><input name="source" value="BMKG simulation" required /></label>
+          <label class="field"><span>Pesan peringatan</span><textarea name="message" required>Waspada hujan ekstrem dan potensi banjir. Amankan dokumen, hasil panen, dan ternak; ikuti arahan posko setempat.</textarea></label>
+          <button class="button button-primary" type="submit">Kirim alert</button>
+        </form></section>
+
+        <section class="admin-card"><div class="reports-content-head"><h2>Pendaftaran relawan/lembaga</h2><label class="field"><select id="application-status"><option value="pending">Menunggu</option><option value="all">Semua</option><option value="verified">Terverifikasi</option><option value="rejected">Ditolak</option></select></label></div><div class="application-list" id="application-list"><div class="empty-state">Memuat pendaftaran…</div></div></section>
+
+        <section class="admin-card alert-history"><h2>Riwayat alert</h2><div class="history-list" id="alert-history"><div class="empty-state">Memuat riwayat…</div></div></section>
+      </div>
+    </main>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/static/site.js"></script>
+    <script src="/static/admin.js"></script>
+  </body>
+</html>

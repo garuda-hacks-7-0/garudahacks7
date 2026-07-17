@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Status Laporan — Peta.ni</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Merriweather:wght@700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Peta.ni beranda"><img src="/static/assets/petani-logo.svg" alt="" /><span class="brand-word">Peta.<em>ni</em></span></a>
+      <button class="mobile-menu-button" type="button" aria-label="Buka menu" aria-expanded="false">☰</button>
+      <nav class="main-nav" aria-label="Navigasi utama"><a class="nav-link" href="/">Beranda</a><a class="nav-link" href="/map">Peta</a><a class="nav-link" href="/reports" data-responder-only>Laporan</a></nav>
+      <div class="header-actions"><a class="button button-outline session-link" data-whatsapp-link href="#">Tanya via WhatsApp</a></div>
+    </header>
+
+    <main class="tracking-main">
+      <div class="tracking-shell" id="tracking-shell"><div class="empty-state">Memuat perkembangan laporan…</div></div>
+    </main>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/static/site.js"></script>
+    <script src="/static/tracking.js"></script>
+  </body>
+</html>

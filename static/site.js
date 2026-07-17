@@ -10,10 +10,16 @@
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#39;");
 
-  const isResponder = () => localStorage.getItem(ROLE_KEY) === "responder";
+  const isAdmin = () => localStorage.getItem(ROLE_KEY) === "admin";
+  const isResponder = () => ["responder", "admin"].includes(localStorage.getItem(ROLE_KEY));
 
   const setResponderSession = (name = "Relawan") => {
     localStorage.setItem(ROLE_KEY, "responder");
+    localStorage.setItem(SESSION_NAME_KEY, name);
+  };
+
+  const setAdminSession = (name = "Admin") => {
+    localStorage.setItem(ROLE_KEY, "admin");
     localStorage.setItem(SESSION_NAME_KEY, name);
   };
 
@@ -36,7 +42,7 @@
   };
 
   const statusLabels = {
-    new: "Belum ditangani",
+    new: "Menunggu verifikasi AI",
     verified: "Terverifikasi",
     in_progress: "Sedang ditangani",
     resolved: "Selesai",
@@ -66,12 +72,19 @@
 
   const mountShell = () => {
     const responder = isResponder();
+    const admin = isAdmin();
     document.querySelectorAll("[data-responder-only]").forEach((node) => {
       node.hidden = !responder;
     });
+    document.querySelectorAll("[data-admin-only]").forEach((node) => {
+      node.hidden = !admin;
+    });
 
     document.querySelectorAll("[data-session-link]").forEach((link) => {
-      if (responder) {
+      if (admin) {
+        link.textContent = "Panel Admin";
+        link.href = "/admin";
+      } else if (responder) {
         link.textContent = "Mode Relawan";
         link.href = "/reports";
       } else {
@@ -108,7 +121,9 @@
     categoryLabels,
     clearSession,
     escapeHtml,
+    isAdmin,
     isResponder,
+    setAdminSession,
     setResponderSession,
     showToast,
     statusLabels,

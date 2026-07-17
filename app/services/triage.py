@@ -1,8 +1,10 @@
 from datetime import datetime
+import json
 import re
 
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models import (
     ConversationState,
     FarmerProfile,
@@ -10,6 +12,7 @@ from app.models import (
     Region,
     Report,
     ReportStatus,
+    ResponseStatus,
 )
 from app.services.classifier import (
     Classification,
@@ -18,7 +21,7 @@ from app.services.classifier import (
     get_classifier,
     normalize_needs,
 )
-from app.services.geocoder import MockGeocoder
+from app.services.geocoder import GeoResult, MockGeocoder
 from app.services.resources import ResourceService, km_between
 from app.services.weather import MockWeatherRisk
 
@@ -86,17 +89,25 @@ REPORT_FORM_TEMPLATE = (
     "Bantuan yang dibutuhkan: Pangan, air bersih, pompa\n"
     "Petani/penggarap di lokasi: YA/TIDAK"
 )
+FORM_ONLY_MESSAGE = (
+    "*FORM LAPORAN PETANI*\n"
+    "Desa/Kelurahan: \n"
+    "Kecamatan: \n"
+    "Kota/Kabupaten: \n"
+    "Deskripsi dampak: \n"
+    "Bantuan yang dibutuhkan: \n"
+    "Petani/penggarap di lokasi: YA/TIDAK"
+)
 FORM_REQUIRED_MESSAGE = (
     "Mohon gunakan form agar laporan bisa diproses dengan cepat. Copy-paste, "
     "ganti contoh jawabannya, lalu kirim dalam satu pesan:\n\n"
     f"{REPORT_FORM_TEMPLATE}\n\n"
     "Jika memakai Share Location, hapus tiga baris lokasi manual lalu kirim "
     "Share Location WhatsApp secara terpisah (bukan Live Location).\n\n"
-    "Jika mengetik manual, ketiga baris lokasi wajib diisi lengkap; 'Sayung, "
-    "Demak' saja belum cukup.\n\n"
     "Foto bukti juga boleh dikirim terpisah.\n\n"
     "Jenis bantuan boleh lebih dari satu. Tulis BELUM TAHU jika belum dapat "
     "menentukannya.\n\n"
+    "Ketik SALIN FORM jika ingin menerima form kosong dalam satu pesan.\n\n"
     "Ketik BATAL untuk membatalkan laporan."
 )
 LOCATION_CHECK_MESSAGE = "Sebentar ya, aku cek dulu lokasi kamu… 📍"
@@ -108,12 +119,11 @@ WELCOME_MESSAGE = (
     "Lokasi boleh diganti dengan Share Location: tekan 📎 > Location > "
     "Send your current location (bukan Live Location), lalu hapus tiga baris "
     "lokasi manual dari form.\n\n"
-    "Jika mengetik manual, Desa/Kelurahan, Kecamatan, dan Kota/Kabupaten wajib "
-    "diisi lengkap; 'Sayung, Demak' saja belum cukup.\n\n"
     "Foto dan Share Location boleh dikirim terpisah, tetapi data teks wajib "
     "menggunakan form.\n\n"
     "Jenis bantuan boleh lebih dari satu. Tulis BELUM TAHU jika belum dapat "
-    "menentukannya."
+    "menentukannya.\n\n"
+    "Ketik SALIN FORM jika ingin menerima form kosong dalam satu pesan."
 )
 CANCEL_FOOTER = "Ketik BATAL untuk membatalkan laporan."
 PRIVACY_CONSENT_VERSION = "2026-07-17-v1"
@@ -168,6 +178,7 @@ class TriageService:
         self.resources = resources or ResourceService()
         self.privacy_consent_required = privacy_consent_required
         self.form_required = form_required
+        self.public_url = get_settings().app_public_url.rstrip("/")
 
     def ingest(
         self,
@@ -220,6 +231,9 @@ class TriageService:
                     state.pending_fields = current_pending
                     db.add(state)
                     db.commit()
+
+        if self._is_form_copy_command(text, button_payload):
+            return active_report, FORM_ONLY_MESSAGE
 
         if self.form_required:
             has_attachment = bool(evidence_urls) or (
@@ -539,9 +553,8 @@ class TriageService:
             regency=classification.regency or "",
             location_label=report_location,
         )
+        self._apply_shared_location_details(report, geo)
         self._sync_location_label(report)
-        if report.location_shared and geo is not None:
-            report.location_label = geo.label
         self._update_location_verification(report, geo_found=geo is not None)
         if primary_image:
             self._apply_image_assessment(report, primary_image, classification)
@@ -570,7 +583,9 @@ class TriageService:
         else:
             opening = f"✅ Laporan TT-{report.id:04d} diterima."
         acknowledgement = (
-            f"{opening} {CONSENT_NOTICE}\n\n{self._readiness_message(report)}"
+            f"{opening} {CONSENT_NOTICE}\n\n"
+            f"{self._tracking_message(report)}\n\n"
+            f"{self._readiness_message(report)}"
         )
         return report, acknowledgement
 
@@ -741,13 +756,12 @@ class TriageService:
                 report.location_shared = True
                 report.location_label = geo.label
                 recognized_fields.add("location")
+        self._apply_shared_location_details(report, geo)
         if current_field == "location_verification" and (text.strip() or geo):
             recognized_fields.add("location_attempt")
         if should_geocode:
             self._update_location_verification(report, geo_found=geo is not None)
         self._sync_location_label(report)
-        if report.location_shared and geo is not None and lat is not None and lon is not None:
-            report.location_label = geo.label
 
         severity = self._extract_severity(text)
         if severity is not None:
@@ -818,7 +832,8 @@ class TriageService:
         return (
             report,
             f"✅ Data TT-{report.id:04d} sudah cukup dan siap ditindaklanjuti. "
-            "Kami akan mengabari setiap perubahan status.",
+            "Kami akan mengabari setiap perubahan status.\n\n"
+            f"{self._tracking_message(report)}",
         )
 
     def _apply_classification_to_report(
@@ -868,9 +883,19 @@ class TriageService:
             return latest_text
         pending_fields = self._pending_fields(state.pending_fields)
         active_field = pending_fields[0] if pending_fields else "none"
+        internal_confidence = json.dumps(
+            {
+                "values": report.field_confidences or {},
+                "reasons": report.field_confidence_reasons or {},
+                "verification": report.field_verification or {},
+            },
+            ensure_ascii=False,
+        )
         return (
             "[RIWAYAT_LAPORAN]\n"
             f"{report.text}\n"
+            "[CONFIDENCE_INTERNAL]\n"
+            f"{internal_confidence}\n"
             "[FIELD_AKTIF]\n"
             f"{active_field}\n"
             "[JAWABAN_TERBARU]\n"
@@ -950,8 +975,33 @@ class TriageService:
         image_url: str,
         classification: Classification,
     ) -> None:
+        visual_notes = " ".join(
+            value.lower()
+            for value in [
+                classification.image_findings or "",
+                classification.image_reason or "",
+            ]
+        )
+        limited_visual_source = any(
+            marker in visual_notes
+            for marker in [
+                "satelit",
+                "satellite",
+                "aerial",
+                "drone",
+                "foto udara",
+                "screenshot",
+                "tangkapan layar",
+                "foto layar",
+                "foto stok",
+                "stock photo",
+                "foto ulang",
+            ]
+        )
         if classification.image_relevant is False:
             status = "rejected_irrelevant"
+        elif classification.image_relevant is True and limited_visual_source:
+            status = "supporting_only"
         elif classification.image_matches_report is False:
             status = "rejected_mismatch"
         elif (
@@ -999,7 +1049,10 @@ class TriageService:
             if item.get("status") == "verified_visual"
         ]
         if verified:
-            return max(verified)
+            confidence = max(verified)
+            if len(verified) == 1:
+                confidence = min(confidence, 0.75)
+            return confidence
         if not self.form_required and report.evidence_urls:
             return 1.0
         return 0.0
@@ -1071,6 +1124,20 @@ class TriageService:
         if "verified_visual" in evidence_statuses:
             verification["evidence"] = "verified_visual"
             reasons.pop("evidence", None)
+        elif "supporting_only" in evidence_statuses:
+            verification["evidence"] = "supporting_only"
+            supporting = next(
+                (
+                    item
+                    for item in reversed(report.evidence_assessments or [])
+                    if item.get("status") == "supporting_only"
+                ),
+                {},
+            )
+            reasons["evidence"] = str(
+                supporting.get("reason")
+                or "Foto hanya memberi konteks dan belum cukup untuk verifikasi visual."
+            )[:240]
         elif any(status.startswith("rejected_") for status in evidence_statuses):
             verification["evidence"] = "rejected"
             rejected = next(
@@ -1183,6 +1250,19 @@ class TriageService:
                 and self._verified_evidence_count(report) < EVIDENCE_TARGET
             )
         )
+        if not report.updates and report.response_status in {
+            ResponseStatus.new.value,
+            ResponseStatus.verified.value,
+            ResponseStatus.rejected.value,
+        }:
+            report.response_status = (
+                ResponseStatus.verified.value
+                if not report.review_required
+                and report.readiness_score >= READINESS_THRESHOLD
+                and self._verified_evidence_count(report) >= EVIDENCE_TARGET
+                and self._evidence_confidence(report) >= FIELD_CONFIDENCE_THRESHOLD
+                else ResponseStatus.new.value
+            )
 
     def _missing_fields(self, report: Report) -> list[str]:
         missing: list[str] = []
@@ -1291,6 +1371,11 @@ class TriageService:
                 return "foto belum menunjukkan dampak bencana atau kerusakan pertanian"
             if "rejected_mismatch" in statuses:
                 return "isi foto tidak konsisten dengan deskripsi laporan"
+            if "supporting_only" in statuses:
+                return (
+                    "foto satelit/aerial atau tangkapan layar hanya menjadi konteks; "
+                    "dibutuhkan foto lapangan yang memperlihatkan dampak"
+                )
             return "foto belum berhasil diverifikasi oleh AI vision"
         reason = (report.field_confidence_reasons or {}).get(field)
         if reason and self._field_confidence(report, field) < FIELD_CONFIDENCE_THRESHOLD:
@@ -1315,6 +1400,12 @@ class TriageService:
             f"{CANCEL_FOOTER}"
         )
 
+    def _tracking_message(self, report: Report) -> str:
+        return (
+            "Laporanmu tersimpan. Lihat status dan update lengkap di: "
+            f"{self.public_url}/track/{report.public_token}"
+        )
+
     def _normalized_command(self, text: str) -> str:
         return re.sub(r"[^a-z0-9 ]+", "", text.lower()).strip()
 
@@ -1323,6 +1414,14 @@ class TriageService:
 
     def _is_start_command(self, text: str) -> bool:
         return self._normalized_command(text) in START_COMMANDS
+
+    def _is_form_copy_command(
+        self, text: str, button_payload: str | None
+    ) -> bool:
+        return (
+            (button_payload or "").strip().upper() == "FORM_COPY"
+            or self._normalized_command(text) in {"salin form", "copy form"}
+        )
 
     def _is_cancel_command(self, text: str) -> bool:
         return self._normalized_command(text) in {
@@ -1522,6 +1621,19 @@ class TriageService:
         admin_label = self._admin_location_label(report)
         if admin_label:
             report.location_label = admin_label
+
+    def _apply_shared_location_details(
+        self, report: Report, geo: GeoResult | None
+    ) -> None:
+        if not self._has_shared_location(report) or geo is None:
+            return
+        # A WhatsApp pin replaces manual location fields. Reverse-geocoded
+        # administrative fields are used when available; otherwise the exact
+        # coordinates remain the safe fallback label.
+        report.village = geo.village
+        report.district = geo.district
+        report.regency = geo.regency
+        report.location_label = self._admin_location_label(report) or geo.label
 
     def _declines_evidence(self, text: str) -> bool:
         lower = text.lower()

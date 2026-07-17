@@ -1,9 +1,12 @@
 from collections import Counter
 from datetime import datetime, timedelta
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import RedirectResponse, Response
 from sqlalchemy.orm import Session, selectinload
 
+from app.config import get_settings
 from app.db import get_db
 from app.models import (
     Alert,
@@ -19,7 +22,14 @@ from app.schemas import (
     BroadcastResult,
     FarmerProfileOut,
     LocalContactOut,
+    OrganizationPublicOut,
+    OrganizationRegisterIn,
     OrganizationOut,
+    OrganizationVerificationIn,
+    OrganizationVerificationResult,
+    PublicReportTrackingOut,
+    PublicReportUpdateOut,
+    PublicTrackingOrganizationOut,
     RegionPublicOut,
     RegionResponderOut,
     ReportOut,
@@ -28,6 +38,7 @@ from app.schemas import (
     ReportUpdateOut,
 )
 from app.services.classifier import SEVERITY_ORDER, normalize_needs
+from app.services.geocoder import is_generic_location_label
 from app.services.notifications import NotificationService
 from app.services.resources import ResourceService, km_between
 from app.services.triage import EVIDENCE_TARGET
@@ -36,9 +47,10 @@ from app.services.triage import EVIDENCE_TARGET
 router = APIRouter(prefix="/api")
 resources = ResourceService()
 notifications = NotificationService()
+settings = get_settings()
 
 
-@router.get("/organizations", response_model=list[OrganizationOut])
+@router.get("/organizations", response_model=list[OrganizationPublicOut])
 def list_organizations(db: Session = Depends(get_db)) -> list[Organization]:
     return (
         db.query(Organization)
@@ -46,6 +58,125 @@ def list_organizations(db: Session = Depends(get_db)) -> list[Organization]:
         .order_by(Organization.name)
         .all()
     )
+
+
+@router.post(
+    "/organizations/register", response_model=OrganizationOut, status_code=201
+)
+def register_organization(
+    payload: OrganizationRegisterIn, db: Session = Depends(get_db)
+) -> Organization:
+    existing = (
+        db.query(Organization)
+        .filter(Organization.name.ilike(payload.name.strip()))
+        .one_or_none()
+    )
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="Nama pendaftar sudah digunakan")
+
+    required_documents = (
+        {"identity"}
+        if payload.applicant_kind == "individual"
+        else {"legal", "mandate"}
+    )
+    missing_documents = sorted(
+        key
+        for key in required_documents
+        if not payload.document_links.get(key, "").strip()
+    )
+    if missing_documents:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Berkas wajib belum lengkap: " + ", ".join(missing_documents)
+            ),
+        )
+
+    organization = Organization(
+        name=payload.name.strip(),
+        type=payload.type.strip(),
+        verified=False,
+        applicant_kind=payload.applicant_kind,
+        registration_status="pending",
+        email=payload.email.strip(),
+        phone=payload.phone.strip(),
+        address=payload.address.strip(),
+        contact_name=payload.contact_name.strip(),
+        contact_role=payload.contact_role.strip(),
+        logo_url=payload.logo_url.strip(),
+        website=payload.website.strip(),
+        operational_areas=[
+            area.strip() for area in payload.operational_areas if area.strip()
+        ],
+        document_links={
+            key: value.strip()
+            for key, value in payload.document_links.items()
+            if value.strip()
+        },
+    )
+    db.add(organization)
+    db.commit()
+    db.refresh(organization)
+    return organization
+
+
+@router.get("/admin/organizations", response_model=list[OrganizationOut])
+def list_organization_applications(
+    status: str = Query(
+        default="pending", pattern="^(all|pending|verified|rejected)$"
+    ),
+    db: Session = Depends(get_db),
+) -> list[Organization]:
+    query = db.query(Organization)
+    if status != "all":
+        query = query.filter(Organization.registration_status == status)
+    return query.order_by(Organization.created_at.desc()).all()
+
+
+@router.post(
+    "/admin/organizations/{organization_id}/verification",
+    response_model=OrganizationVerificationResult,
+)
+def verify_organization(
+    organization_id: int,
+    payload: OrganizationVerificationIn,
+    db: Session = Depends(get_db),
+) -> OrganizationVerificationResult:
+    organization = (
+        db.query(Organization)
+        .filter(Organization.id == organization_id)
+        .one_or_none()
+    )
+    if organization is None:
+        raise HTTPException(status_code=404, detail="Pendaftar tidak ditemukan")
+    organization.registration_status = payload.status
+    organization.verified = payload.status == "verified"
+    organization.verification_note = payload.note.strip()
+    organization.verified_at = datetime.utcnow() if organization.verified else None
+    db.add(organization)
+    db.commit()
+    return OrganizationVerificationResult(
+        organization_id=organization.id,
+        status=organization.registration_status,
+        verified=organization.verified,
+    )
+
+
+@router.get(
+    "/public/reports/{public_token}", response_model=PublicReportTrackingOut
+)
+def public_report_tracking(
+    public_token: str, db: Session = Depends(get_db)
+) -> PublicReportTrackingOut:
+    report = (
+        db.query(Report)
+        .options(selectinload(Report.updates).selectinload(ReportUpdate.organization))
+        .filter(Report.public_token == public_token)
+        .one_or_none()
+    )
+    if report is None:
+        raise HTTPException(status_code=404, detail="Laporan tidak ditemukan")
+    return _public_tracking_out(report)
 
 
 @router.get("/reports", response_model=list[ReportOut])
@@ -74,6 +205,34 @@ def list_reports(
         for report in reports
         if _report_matches_urgency(report, urgency)
     ]
+
+
+@router.get("/reports/{report_id}/evidence/{evidence_index}")
+def responder_report_evidence(
+    report_id: int,
+    evidence_index: int,
+    db: Session = Depends(get_db),
+) -> Response:
+    report = db.query(Report).filter(Report.id == report_id).one_or_none()
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return _evidence_response(report, evidence_index)
+
+
+@router.get("/public/reports/{public_token}/evidence/{evidence_index}")
+def public_report_evidence(
+    public_token: str,
+    evidence_index: int,
+    db: Session = Depends(get_db),
+) -> Response:
+    report = (
+        db.query(Report)
+        .filter(Report.public_token == public_token)
+        .one_or_none()
+    )
+    if report is None:
+        raise HTTPException(status_code=404, detail="Laporan tidak ditemukan")
+    return _evidence_response(report, evidence_index)
 
 
 @router.get("/reports/{report_id}", response_model=ReportOut)
@@ -120,6 +279,9 @@ def update_report_status(
         report=report,
         status=payload.status,
         note=payload.note.strip(),
+        documentation_urls=[
+            url.strip() for url in payload.documentation_urls if url.strip()
+        ],
         organization=organization,
     )
     db.add_all([report, update])
@@ -137,6 +299,10 @@ def update_report_status(
     )
     if payload.note.strip():
         message += f" Catatan: {payload.note.strip()}"
+    message += (
+        f" Cek perkembangan lengkap: "
+        f"{settings.app_public_url.rstrip('/')}/track/{report.public_token}"
+    )
     delivery = notifications.send(
         db,
         recipient=report.sender,
@@ -416,7 +582,71 @@ def list_alerts(db: Session = Depends(get_db)) -> list[AlertOut]:
     return [_alert_out(alert) for alert in alerts]
 
 
+def _evidence_sources(report: Report) -> list[str]:
+    sources = list(report.evidence_urls or [])
+    if not sources and report.image_url:
+        sources.append(report.image_url)
+    return sources
+
+
+def _is_twilio_media(url: str) -> bool:
+    hostname = (urlparse(url).hostname or "").lower()
+    return hostname == "api.twilio.com" or hostname.endswith(".twiliocdn.com")
+
+
+def _evidence_response(report: Report, evidence_index: int) -> Response:
+    sources = _evidence_sources(report)
+    if evidence_index < 0 or evidence_index >= len(sources):
+        raise HTTPException(status_code=404, detail="Bukti tidak ditemukan")
+    source = sources[evidence_index]
+    if not _is_twilio_media(source):
+        return RedirectResponse(source, status_code=307)
+    if not settings.twilio_account_sid or not settings.twilio_auth_token:
+        raise HTTPException(
+            status_code=503,
+            detail="Kredensial media Twilio belum dikonfigurasi",
+        )
+
+    import httpx
+
+    try:
+        media = httpx.get(
+            source,
+            auth=(settings.twilio_account_sid, settings.twilio_auth_token),
+            follow_redirects=True,
+            timeout=min(settings.openrouter_timeout_seconds, 15),
+        )
+        media.raise_for_status()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail="Media Twilio tidak dapat diambil"
+        ) from exc
+    content_type = media.headers.get("content-type", "image/jpeg").split(";")[0]
+    if not content_type.startswith("image/"):
+        raise HTTPException(status_code=415, detail="Media bukan gambar")
+    return Response(
+        content=media.content,
+        media_type=content_type,
+        headers={"Cache-Control": "private, max-age=300"},
+    )
+
+
+def _responder_evidence_urls(report: Report) -> list[str]:
+    return [
+        f"/api/reports/{report.id}/evidence/{index}"
+        for index, _ in enumerate(_evidence_sources(report))
+    ]
+
+
+def _public_evidence_urls(report: Report) -> list[str]:
+    return [
+        f"/api/public/reports/{report.public_token}/evidence/{index}"
+        for index, _ in enumerate(_evidence_sources(report))
+    ]
+
+
 def _report_out(report: Report) -> ReportOut:
+    evidence_urls = _responder_evidence_urls(report)
     updates = [
         ReportUpdateOut(
             id=update.id,
@@ -424,6 +654,12 @@ def _report_out(report: Report) -> ReportOut:
             note=update.note,
             organization_id=update.updated_by,
             organization_name=update.organization.name,
+            organization_logo_url=update.organization.logo_url,
+            organization_contact_name=update.organization.contact_name,
+            organization_contact_role=update.organization.contact_role,
+            organization_phone=update.organization.phone,
+            organization_email=update.organization.email,
+            documentation_urls=update.documentation_urls or [],
             created_at=update.created_at,
         )
         for update in report.updates
@@ -433,9 +669,9 @@ def _report_out(report: Report) -> ReportOut:
         reporter_alias=f"Petani TT-{report.id:04d}",
         text=report.text,
         incident_description=report.incident_description,
-        image_url=report.image_url,
-        evidence_urls=report.evidence_urls or [],
-        evidence_count=len(report.evidence_urls or []),
+        image_url=evidence_urls[0] if evidence_urls else None,
+        evidence_urls=evidence_urls,
+        evidence_count=len(evidence_urls),
         evidence_target=EVIDENCE_TARGET,
         evidence_unavailable=report.evidence_unavailable,
         category=report.category,
@@ -496,6 +732,62 @@ def _report_out(report: Report) -> ReportOut:
         location_label=report.location_label,
         created_at=report.created_at,
         updates=updates,
+    )
+
+
+def _public_tracking_organization(
+    organization: Organization,
+) -> PublicTrackingOrganizationOut:
+    show_official_contact = organization.applicant_kind == "organization"
+    return PublicTrackingOrganizationOut(
+        name=organization.name,
+        type=organization.type,
+        logo_url=organization.logo_url,
+        contact_name=organization.contact_name if show_official_contact else "",
+        contact_role=organization.contact_role if show_official_contact else "",
+        phone=organization.phone if show_official_contact else "",
+        email=organization.email if show_official_contact else "",
+        website=organization.website,
+    )
+
+
+def _public_tracking_out(report: Report) -> PublicReportTrackingOut:
+    public_updates = [
+        PublicReportUpdateOut(
+            id=update.id,
+            status=update.status,
+            note=update.note,
+            documentation_urls=update.documentation_urls or [],
+            organization=_public_tracking_organization(update.organization),
+            created_at=update.created_at,
+        )
+        for update in report.updates
+    ]
+    responsible = (
+        _public_tracking_organization(report.updates[-1].organization)
+        if report.updates
+        else None
+    )
+    public_location_label = report.location_label
+    if report.location_shared and is_generic_location_label(public_location_label):
+        public_location_label = "Lokasi dibagikan melalui WhatsApp"
+    return PublicReportTrackingOut(
+        tracking_id=f"TT-{report.id:04d}",
+        incident_description=report.incident_description,
+        ai_summary=report.ai_summary,
+        category=report.category,
+        severity=report.severity,
+        needs=normalize_needs(report.needs or []),
+        response_status=report.response_status,
+        village=report.village,
+        district=report.district,
+        regency=report.regency,
+        location_label=public_location_label,
+        evidence_urls=_public_evidence_urls(report),
+        created_at=report.created_at,
+        updated_at=report.updated_at,
+        updates=public_updates,
+        responsible_organization=responsible,
     )
 
 

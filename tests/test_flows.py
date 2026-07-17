@@ -34,6 +34,7 @@ from app.services.notifications import NotificationService, WhatsAppNotifier
 from app.services.triage import (
     CONSENT_NOTICE,
     EVIDENCE_TARGET,
+    FORM_ONLY_MESSAGE,
     FORM_REQUIRED_MESSAGE,
     LOCATION_CHECK_MESSAGE,
     PRIVACY_CONSENT_ACCEPTED,
@@ -120,6 +121,21 @@ class RejectingVisionClassifier(CountingClassifier):
         )
 
 
+class AerialVisionClassifier(VisionCountingClassifier):
+    def classify(self, text, image_url=None):
+        result = super().classify(text, image_url)
+        if not image_url:
+            return result
+        return replace(
+            result,
+            image_findings="Foto aerial/satelit menunjukkan genangan secara umum.",
+            image_confidence=0.9,
+            image_reason=(
+                "Sudut aerial tidak dapat membuktikan waktu dan lokasi laporan."
+            ),
+        )
+
+
 def test_consent_gate_blocks_storage_and_ai_until_button_accepts(db):
     classifier = CountingClassifier()
     service = TriageService(
@@ -164,6 +180,28 @@ def test_consent_gate_blocks_storage_and_ai_until_button_accepts(db):
     assert report is not None
     assert len(classifier.calls) == 1
     assert db.query(InboundMessage).count() == 2
+
+
+def test_form_copy_quick_reply_returns_only_blank_form(db):
+    service = TriageService(
+        classifier=CountingClassifier(),
+        geocoder=StubGeocoder(),
+        privacy_consent_required=False,
+        form_required=True,
+    )
+
+    report, reply = service.ingest(
+        db,
+        sender="whatsapp:+628101",
+        text="SALIN FORM",
+        button_payload="FORM_COPY",
+    )
+
+    assert report is None
+    assert reply == FORM_ONLY_MESSAGE
+    assert "Halo" not in reply
+    assert "Desa/Kelurahan:" in reply
+    assert db.query(InboundMessage).count() == 1
 
 
 def test_consent_cancel_button_discards_message_without_storage_or_ai(db):
@@ -371,6 +409,60 @@ def test_irrelevant_photo_does_not_count_as_verified_evidence(db):
     assert "belum menunjukkan dampak" in reply
 
 
+def test_ground_photo_can_auto_verify_but_single_evidence_is_capped(db):
+    service = TriageService(
+        classifier=VisionCountingClassifier(),
+        geocoder=StubGeocoder(),
+        privacy_consent_required=False,
+        form_required=True,
+    )
+    report, _ = service.ingest(
+        db,
+        sender="farmer-ground-photo",
+        text=(
+            "FORM LAPORAN PETANI\n"
+            "Desa/Kelurahan: Sayung\n"
+            "Kecamatan: Sayung\n"
+            "Kota/Kabupaten: Demak\n"
+            "Deskripsi dampak: Banjir merendam sawah dan merusak tanaman.\n"
+            "Bantuan yang dibutuhkan: Pompa\n"
+            "Petani/penggarap di lokasi: YA"
+        ),
+        image_url="https://example.com/ground.jpg",
+    )
+
+    assert report.response_status == "verified"
+    assert service._evidence_confidence(report) == 0.75
+
+
+def test_aerial_photo_is_supporting_context_not_verified_evidence(db):
+    service = TriageService(
+        classifier=AerialVisionClassifier(),
+        geocoder=StubGeocoder(),
+        privacy_consent_required=False,
+        form_required=True,
+    )
+    report, reply = service.ingest(
+        db,
+        sender="farmer-aerial-photo",
+        text=(
+            "FORM LAPORAN PETANI\n"
+            "Desa/Kelurahan: Sayung\n"
+            "Kecamatan: Sayung\n"
+            "Kota/Kabupaten: Demak\n"
+            "Deskripsi dampak: Banjir merendam sawah dan merusak tanaman.\n"
+            "Bantuan yang dibutuhkan: Pompa\n"
+            "Petani/penggarap di lokasi: YA"
+        ),
+        image_url="https://example.com/aerial.jpg",
+    )
+
+    assert report.evidence_assessments[0]["status"] == "supporting_only"
+    assert report.response_status == "new"
+    assert report.status == "needs_follow_up"
+    assert "foto satelit/aerial" in reply
+
+
 def test_every_inbound_message_is_forwarded_to_classifier(db):
     classifier = CountingClassifier()
     service = TriageService(
@@ -486,6 +578,21 @@ def test_whatsapp_quick_reply_payload_maps_to_consent_action():
 
     assert tasks.tasks[0].args[1] == "SETUJU"
     assert tasks.tasks[0].args[-1] == "CONSENT_ACCEPT"
+
+
+def test_whatsapp_quick_reply_payload_maps_to_form_copy_action():
+    tasks = BackgroundTasks()
+
+    webhooks.whatsapp_webhook(
+        tasks,
+        from_number="whatsapp:+62000",
+        body="SALIN FORM",
+        button_text="SALIN FORM",
+        button_payload="FORM_COPY",
+    )
+
+    assert tasks.tasks[0].args[1] == "SALIN FORM"
+    assert tasks.tasks[0].args[-1] == "FORM_COPY"
 
 
 def test_background_whatsapp_work_sends_reply_via_notifier(monkeypatch):
@@ -1212,7 +1319,7 @@ def _make_region_report(db):
 
 
 def test_public_region_payload_has_no_reporter_photo_or_precise_pin(db):
-    region, _ = _make_region_report(db)
+    region, report = _make_region_report(db)
     db.add_all(
         [
             LocalContact(
@@ -1253,7 +1360,9 @@ def test_public_region_payload_has_no_reporter_photo_or_precise_pin(db):
     responder = region_detail(region.id, view="responder", db=db).model_dump()
     assert responder["reports"][0]["reporter_alias"].startswith("Petani TT-")
     assert "sender" not in responder["reports"][0]
-    assert responder["reports"][0]["image_url"].endswith("private.jpg")
+    assert responder["reports"][0]["image_url"].endswith(
+        f"/api/reports/{report.id}/evidence/0"
+    )
     assert responder["reports"][0]["readiness_score"] == 95
     assert responder["reports"][0]["village"] == "Sayung"
     assert responder["reports"][0]["needs"] == ["pompa & drainase"]
@@ -1271,10 +1380,15 @@ def test_mediated_contact_is_removed_from_api_and_dashboard():
         for route in dashboard_api.router.routes
     )
     dashboard_html = Path("static/dashboard.html").read_text(encoding="utf-8")
+    dashboard_js = Path("static/dashboard.js").read_text(encoding="utf-8")
+    reports_js = Path("static/reports.js").read_text(encoding="utf-8")
     assert "Hubungi via sistem" not in dashboard_html
-    assert "Kontak kantor desa terdekat" in dashboard_html
-    assert "Bantuan dibutuhkan" in dashboard_html
-    assert "Confidence per field" in dashboard_html
+    assert "Kontak kantor desa terdekat" in dashboard_js
+    assert "Kontak kantor desa" in reports_js
+    assert "Telepon kantor" in reports_js
+    assert "WhatsApp kantor" in reports_js
+    assert "Bantuan dibutuhkan" in dashboard_js
+    assert "Confidence per field" not in dashboard_html + dashboard_js
 
 
 def test_weather_alert_targets_only_confirmed_local_reporters(db):

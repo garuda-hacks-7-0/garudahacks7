@@ -48,6 +48,21 @@ def reports_page() -> FileResponse:
     return FileResponse("static/reports.html")
 
 
+@app.get("/register", include_in_schema=False)
+def register_page() -> FileResponse:
+    return FileResponse("static/register.html")
+
+
+@app.get("/admin", include_in_schema=False)
+def admin_page() -> FileResponse:
+    return FileResponse("static/admin.html")
+
+
+@app.get("/track/{public_token}", include_in_schema=False)
+def report_tracking_page(public_token: str) -> FileResponse:
+    return FileResponse("static/tracking.html")
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}

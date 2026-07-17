@@ -12,10 +12,13 @@ from app.models import Report
 from app.schemas import IncomingReport, WebhookResponse
 from app.services.notifications import NotificationService
 from app.services.triage import (
+    FORM_REQUIRED_MESSAGE,
     LOCATION_CHECK_MESSAGE,
+    PRIVACY_CONSENT_ACCEPTED,
     PRIVACY_CONSENT_DECLINED,
     PRIVACY_CONSENT_PROMPT,
     TriageService,
+    WELCOME_MESSAGE,
 )
 
 router = APIRouter()
@@ -110,6 +113,11 @@ def _process_whatsapp_message(
             stored_report = db.get(Report, candidate_id) if candidate_id else None
             is_consent_prompt = reply == PRIVACY_CONSENT_PROMPT
             is_pre_consent_reply = is_consent_prompt or reply == PRIVACY_CONSENT_DECLINED
+            is_form_prompt = reply in {
+                PRIVACY_CONSENT_ACCEPTED,
+                WELCOME_MESSAGE,
+                FORM_REQUIRED_MESSAGE,
+            }
             notifications.send(
                 db,
                 recipient=sender,
@@ -117,7 +125,13 @@ def _process_whatsapp_message(
                 kind="privacy_consent" if is_pre_consent_reply else "intake_reply",
                 report_id=stored_report.id if stored_report else None,
                 content_sid=(
-                    settings.twilio_consent_content_sid if is_consent_prompt else None
+                    settings.twilio_consent_content_sid
+                    if is_consent_prompt
+                    else (
+                        settings.twilio_form_content_sid
+                        if is_form_prompt
+                        else None
+                    )
                 ),
                 persist=not is_pre_consent_reply,
             )
@@ -156,6 +170,7 @@ def whatsapp_webhook(
     canonical_body = {
         "CONSENT_ACCEPT": "SETUJU",
         "CONSENT_CANCEL": "BATAL",
+        "FORM_COPY": "SALIN FORM",
     }.get((payload or "").strip().upper(), message_body or button_label or "")
     location_label = address or label
     background_tasks.add_task(

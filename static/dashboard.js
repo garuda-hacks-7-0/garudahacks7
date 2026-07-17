@@ -70,26 +70,6 @@
     return entries.map(([need, count]) => `<li>${escapeHtml(need)}${count > 1 ? ` · ${count} laporan` : ""}</li>`).join("");
   };
 
-  const confidenceRows = (report) => {
-    const labels = {
-      evidence: "Foto bukti",
-      location: "Lokasi",
-      village: "Desa/Kelurahan",
-      district: "Kecamatan",
-      regency: "Kota/Kabupaten",
-      description: "Deskripsi",
-      is_local_farmer: "Petani setempat",
-      needs: "Bantuan",
-      category: "Jenis kejadian",
-      severity: "Keparahan",
-      medical_needed: "Kebutuhan medis",
-    };
-    return Object.entries(report.field_confidences || {})
-      .filter(([key]) => labels[key])
-      .map(([key, value]) => `<span>${labels[key]}</span><strong>${Math.round(Number(value) * 100)}%</strong>`)
-      .join("");
-  };
-
   const reportCard = (report) => {
     const handled = report.response_status !== "new" && report.response_status !== "rejected";
     const images = (report.evidence_urls || [])
@@ -99,7 +79,6 @@
     const location = [report.village, report.district, report.regency].filter(Boolean).join(" · ") || report.location_label || "Belum lengkap";
     const profile = report.farmer_profile || {};
     const needs = (report.needs || []).map((need) => `<span class="need-chip">${escapeHtml(need)}</span>`).join("") || '<span class="need-chip">Belum disebutkan</span>';
-    const critique = (report.readiness_critique || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
     return `
       <article class="mini-report">
         <div class="mini-report-head">
@@ -110,10 +89,8 @@
         <p>${escapeHtml(report.ai_summary || report.incident_description || report.text)}</p>
         <div class="need-chips">${needs}</div>
         <div class="report-extra" id="report-extra-${report.id}">
-          <div class="info-block"><b>Lokasi</b><br />${escapeHtml(location)}<br /><span>${escapeHtml(report.location_verification_status)}</span></div>
+          <div class="info-block"><b>Lokasi</b><br />${escapeHtml(location)}</div>
           <div class="info-block"><b>Profil petani</b><br />Petani/penggarap: ${profile.is_farmer == null ? "belum diketahui" : profile.is_farmer ? "ya" : "tidak"} · Petani setempat: ${profile.is_local_farmer == null ? "belum diketahui" : profile.is_local_farmer ? "ya" : "tidak"}</div>
-          <div class="info-block"><b>Confidence kesiapan ${report.readiness_score}%</b><br />Bukti terverifikasi ${report.verified_evidence_count}/${report.evidence_target}${critique ? `<ul>${critique}</ul>` : ""}</div>
-          <div class="info-block"><b>Confidence per field</b><div class="confidence-grid">${confidenceRows(report) || "Belum tersedia"}</div></div>
           <div class="info-block"><b>Bantuan dibutuhkan</b><div class="need-chips">${needs}</div></div>
         </div>
         <div class="mini-actions">
@@ -272,10 +249,16 @@
     try {
       const result = await api(`/api/reports/${$("#status-report-id").value}/status`, {
         method: "POST",
-        body: JSON.stringify({ status: $("#new-status").value, organization_id: organization.id, note: $("#status-note").value.trim() }),
+        body: JSON.stringify({
+          status: $("#new-status").value,
+          organization_id: organization.id,
+          note: $("#status-note").value.trim(),
+          documentation_urls: $("#status-documentation").value.split("\n").map((value) => value.trim()).filter(Boolean),
+        }),
       });
       $("#status-dialog").close();
       $("#status-note").value = "";
+      $("#status-documentation").value = "";
       showToast(`Status diperbarui oleh ${result.organization_name}.`);
       await refresh({ quiet: true });
     } catch (error) {

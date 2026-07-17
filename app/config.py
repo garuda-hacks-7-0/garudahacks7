@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     twilio_auth_token: str | None = None
     twilio_whatsapp_from: str | None = None
     twilio_consent_content_sid: str | None = None
+    twilio_form_content_sid: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

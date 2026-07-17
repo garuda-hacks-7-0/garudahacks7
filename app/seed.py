@@ -10,6 +10,7 @@ from app.models import (
     Resource,
 )
 from app.services.classifier import MockClassifier
+from app.services.geocoder import MockGeocoder, is_generic_location_label
 from app.services.triage import TriageService
 
 
@@ -19,6 +20,41 @@ ORGANIZATIONS = [
     ("Pemerintah Desa Sayung", "village"),
     ("MDMC Kudus", "volunteer"),
 ]
+
+ORGANIZATION_DETAILS = {
+    "PMI Demak": {
+        "email": "markas@pmidemak.demo",
+        "phone": "+628111000501",
+        "address": "Kabupaten Demak, Jawa Tengah",
+        "contact_name": "Posko PMI Demak",
+        "contact_role": "Koordinator piket",
+        "operational_areas": ["Demak", "Sayung"],
+    },
+    "BPBD Kabupaten Demak": {
+        "email": "pusdalops@bpbd-demak.demo",
+        "phone": "+628111000502",
+        "address": "Kabupaten Demak, Jawa Tengah",
+        "contact_name": "Pusdalops BPBD Demak",
+        "contact_role": "Petugas piket",
+        "operational_areas": ["Kabupaten Demak"],
+    },
+    "Pemerintah Desa Sayung": {
+        "email": "kantor@desasayung.demo",
+        "phone": "+628111000102",
+        "address": "Desa Sayung, Kabupaten Demak",
+        "contact_name": "Kantor Desa Sayung",
+        "contact_role": "Pelayanan desa",
+        "operational_areas": ["Desa Sayung"],
+    },
+    "MDMC Kudus": {
+        "email": "posko@mdmckudus.demo",
+        "phone": "+628111000503",
+        "address": "Kabupaten Kudus, Jawa Tengah",
+        "contact_name": "Posko MDMC Kudus",
+        "contact_role": "Koordinator respons",
+        "operational_areas": ["Kudus", "Demak"],
+    },
+}
 
 
 DEMO_REPORTS = [
@@ -56,11 +92,15 @@ SEED_EVIDENCE_URLS = [
 
 def seed(db: Session) -> None:
     _seed_organizations(db)
+    _backfill_organizations(db)
+    _seed_pending_organization(db)
     _seed_contacts(db)
     _seed_resources(db)
     _seed_reports(db)
+    _backfill_shared_locations(db)
     _backfill_seed_profiles(db)
     _seed_updates(db)
+    _backfill_update_documentation(db)
 
 
 def _seed_organizations(db: Session) -> None:
@@ -71,6 +111,59 @@ def _seed_organizations(db: Session) -> None:
             Organization(name=name, type=organization_type, verified=True)
             for name, organization_type in ORGANIZATIONS
         ]
+    )
+    db.commit()
+
+
+def _backfill_organizations(db: Session) -> None:
+    for organization in db.query(Organization).filter(Organization.verified.is_(True)):
+        details = ORGANIZATION_DETAILS.get(organization.name, {})
+        organization.applicant_kind = "organization"
+        organization.registration_status = "verified"
+        organization.email = organization.email or details.get("email", "")
+        organization.phone = organization.phone or details.get("phone", "")
+        organization.address = organization.address or details.get("address", "")
+        organization.contact_name = organization.contact_name or details.get(
+            "contact_name", ""
+        )
+        organization.contact_role = organization.contact_role or details.get(
+            "contact_role", ""
+        )
+        organization.operational_areas = (
+            organization.operational_areas
+            or details.get("operational_areas", [])
+        )
+        organization.document_links = organization.document_links or {
+            "legal": "https://example.org/demo/sk-lembaga.pdf",
+            "mandate": "https://example.org/demo/surat-mandat.pdf",
+        }
+        db.add(organization)
+    db.commit()
+
+
+def _seed_pending_organization(db: Session) -> None:
+    name = "Komunitas Relawan Tani Muria"
+    if db.query(Organization).filter(Organization.name == name).one_or_none():
+        return
+    db.add(
+        Organization(
+            name=name,
+            type="community",
+            verified=False,
+            applicant_kind="organization",
+            registration_status="pending",
+            email="relawan@muria.demo",
+            phone="+628111000601",
+            address="Kudus, Jawa Tengah",
+            contact_name="Ayu Lestari",
+            contact_role="Koordinator relawan",
+            operational_areas=["Kudus", "Pati", "Demak"],
+            document_links={
+                "legal": "https://example.org/demo/sk-komunitas.pdf",
+                "mandate": "https://example.org/demo/surat-mandat-ayu.pdf",
+                "portfolio": "https://example.org/demo/portofolio-muria.pdf",
+            },
+        )
     )
     db.commit()
 
@@ -209,6 +302,35 @@ def _backfill_seed_profiles(db: Session) -> None:
     db.commit()
 
 
+def _backfill_shared_locations(db: Session) -> None:
+    geocoder = MockGeocoder()
+    reports = (
+        db.query(Report)
+        .filter(
+            Report.location_shared.is_(True),
+            Report.lat.is_not(None),
+            Report.lon.is_not(None),
+        )
+        .all()
+    )
+    for report in reports:
+        if not is_generic_location_label(report.location_label):
+            continue
+        geo = geocoder.resolve("", report.lat, report.lon)
+        if geo is None or not (geo.village or geo.district or geo.regency):
+            continue
+        report.village = geo.village
+        report.district = geo.district
+        report.regency = geo.regency
+        report.location_label = ", ".join(
+            value
+            for value in [geo.village, geo.district, geo.regency]
+            if value
+        )
+        db.add(report)
+    db.commit()
+
+
 def _seed_updates(db: Session) -> None:
     if db.query(ReportUpdate).count() > 0:
         return
@@ -229,4 +351,21 @@ def _seed_updates(db: Session) -> None:
                 organization=organization,
             )
         )
+    db.commit()
+
+
+def _backfill_update_documentation(db: Session) -> None:
+    updates = db.query(ReportUpdate).order_by(ReportUpdate.id).limit(8).all()
+    for index, update in enumerate(updates):
+        if not update.documentation_urls:
+            update.documentation_urls = [
+                SEED_EVIDENCE_URLS[index % len(SEED_EVIDENCE_URLS)]
+            ]
+        if not update.note or update.note == "Pembaruan demo dari tim lapangan.":
+            update.note = {
+                "verified": "Lokasi dan kebutuhan sudah diverifikasi oleh tim lapangan.",
+                "in_progress": "Tim membawa bantuan awal dan mengecek akses menuju lahan.",
+                "resolved": "Penanganan awal selesai dan kondisi lahan masuk pemantauan.",
+            }.get(update.status, "Pembaruan dari tim lapangan.")
+        db.add(update)
     db.commit()

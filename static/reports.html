@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Daftar Laporan — Peta.ni</title>
-    <script>if (localStorage.getItem("petani_demo_role") !== "responder") window.location.replace("/login?next=/reports");</script>
+    <script>if (!["responder", "admin"].includes(localStorage.getItem("petani_demo_role"))) window.location.replace("/login?next=/reports");</script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Merriweather:wght@700&display=swap" rel="stylesheet" />
@@ -14,7 +14,7 @@
     <header class="site-header">
       <a class="brand" href="/" aria-label="Peta.ni beranda"><img src="/static/assets/petani-logo.svg" alt="" /><span class="brand-word">Peta.<em>ni</em></span></a>
       <button class="mobile-menu-button" type="button" aria-label="Buka menu" aria-expanded="false">☰</button>
-      <nav class="main-nav" aria-label="Navigasi utama"><a class="nav-link" href="/">Beranda</a><a class="nav-link" href="/map">Peta</a><a class="nav-link active" href="/reports">Laporan</a></nav>
+      <nav class="main-nav" aria-label="Navigasi utama"><a class="nav-link" href="/">Beranda</a><a class="nav-link" href="/map">Peta</a><a class="nav-link active" href="/reports">Laporan</a><a class="nav-link" href="/admin" data-admin-only>Admin</a></nav>
       <div class="header-actions">
         <a class="whatsapp-link" data-whatsapp-link href="#" aria-label="Hubungi Peta.ni melalui WhatsApp"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.75 13.96c-.25-.13-1.47-.72-1.7-.81-.23-.08-.39-.13-.56.13-.16.25-.64.81-.78.97-.14.17-.29.19-.54.06-.25-.12-1.05-.39-2-1.23-.74-.66-1.24-1.47-1.38-1.72-.15-.25-.02-.38.11-.51.11-.11.25-.29.37-.43.13-.15.17-.25.25-.42.08-.16.04-.31-.02-.43-.06-.13-.56-1.35-.77-1.85-.2-.49-.41-.42-.56-.43h-.48c-.17 0-.44.06-.66.31-.23.25-.87.85-.87 2.07s.89 2.4 1.01 2.57c.12.16 1.75 2.67 4.24 3.75.59.26 1.05.41 1.42.52.6.19 1.14.16 1.57.1.48-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.15-1.18-.06-.11-.23-.17-.48-.29M12.04 21.5h-.01a9.46 9.46 0 0 1-4.82-1.32l-.35-.2-3.59.94.96-3.5-.23-.36A9.45 9.45 0 0 1 2.55 12c0-5.23 4.26-9.5 9.5-9.5a9.43 9.43 0 0 1 6.71 2.79A9.4 9.4 0 0 1 21.55 12c0 5.24-4.27 9.5-9.51 9.5m8.08-17.56A11.35 11.35 0 0 0 12.05.59C5.77.59.66 5.7.66 12c0 2 .52 3.95 1.51 5.67L.56 23.54l6-1.57a11.4 11.4 0 0 0 5.48 1.4h.01c6.28 0 11.39-5.11 11.39-11.39 0-3.04-1.18-5.9-3.33-8.05" /></svg></a>
         <button class="button button-primary session-link" data-logout type="button">Keluar</button>
@@ -57,6 +57,20 @@
     </footer>
 
     <dialog class="modal" id="report-dialog"><div class="modal-content"><div class="panel-header"><h2 id="dialog-title">Detail laporan</h2><button class="close-button" id="close-report-dialog" type="button" aria-label="Tutup">×</button></div><div id="dialog-body"></div></div></dialog>
+
+    <dialog class="modal" id="report-status-dialog">
+      <form class="modal-content" id="report-status-form">
+        <div class="panel-header"><h2>Update status laporan</h2><button class="close-button" data-close-status type="button" aria-label="Tutup">×</button></div>
+        <input id="report-status-id" type="hidden" />
+        <div class="modal-form">
+          <label class="field"><span>Organisasi penanggung jawab</span><select id="report-status-organization" required><option>Memuat…</option></select></label>
+          <label class="field"><span>Status penanganan</span><select id="report-new-status" required><option value="in_progress">Sedang ditangani</option><option value="resolved">Selesai</option><option value="rejected">Minta pemeriksaan ulang</option></select></label>
+          <label class="field"><span>Catatan untuk petani</span><textarea id="report-status-note" placeholder="Contoh: tim lapangan sedang menuju lokasi."></textarea></label>
+          <label class="field"><span>Tautan dokumentasi (opsional, satu per baris)</span><textarea id="report-status-documentation" placeholder="https://contoh.org/foto-penanganan.jpg"></textarea></label>
+        </div>
+        <div class="modal-actions"><button class="button button-outline button-small" data-close-status type="button">Batal</button><button class="button button-primary button-small" type="submit">Simpan update</button></div>
+      </form>
+    </dialog>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="/static/site.js"></script>
     <script src="/static/reports.js"></script>

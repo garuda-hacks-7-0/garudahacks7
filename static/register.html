@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Daftar Relawan atau Lembaga — Peta.ni</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Merriweather:wght@700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Peta.ni beranda"><img src="/static/assets/petani-logo.svg" alt="" /><span class="brand-word">Peta.<em>ni</em></span></a>
+      <button class="mobile-menu-button" type="button" aria-label="Buka menu" aria-expanded="false">☰</button>
+      <nav class="main-nav" aria-label="Navigasi utama"><a class="nav-link" href="/">Beranda</a><a class="nav-link" href="/map">Peta</a><a class="nav-link" href="/reports" data-responder-only>Laporan</a><a class="nav-link" href="/admin" data-admin-only>Admin</a></nav>
+      <div class="header-actions"><a class="button button-outline session-link" href="/login">Sudah terdaftar? Login</a></div>
+    </header>
+
+    <main class="form-page">
+      <div class="form-page-header"><h1>Daftar untuk ikut membantu</h1><p>Data ini digunakan tim admin untuk memverifikasi identitas, kewenangan, dan area operasi. Dokumen identitas tidak akan ditampilkan kepada petani atau publik.</p></div>
+      <form class="application-card" id="application-form">
+        <section class="form-section">
+          <h2>Jenis pendaftar</h2><p>Pilih jalur yang sesuai agar berkas yang diminta tidak berlebihan.</p>
+          <div class="choice-row">
+            <label class="choice-card"><input type="radio" name="applicant_kind" value="organization" checked /><span><strong>Lembaga/komunitas</strong><small>Untuk yayasan, NGO, komunitas, organisasi resmi, pemerintah, atau unit respons.</small></span></label>
+            <label class="choice-card"><input type="radio" name="applicant_kind" value="individual" /><span><strong>Relawan individu</strong><small>Untuk relawan mandiri yang belum mewakili lembaga.</small></span></label>
+          </div>
+        </section>
+
+        <section class="form-section">
+          <h2>Identitas dan kontak</h2><p>Gunakan kontak yang aktif dan dapat diverifikasi oleh admin.</p>
+          <div class="form-grid-wide">
+            <label class="field"><span>Nama lembaga/nama lengkap</span><input name="name" required /></label>
+            <label class="field"><span>Jenis kegiatan</span><select name="type" required><option value="volunteer">Relawan kemanusiaan</option><option value="community">Komunitas</option><option value="ngo">NGO/yayasan</option><option value="government">Instansi pemerintah</option><option value="agriculture">Kelompok pertanian</option></select></label>
+            <label class="field"><span>Email resmi</span><input name="email" type="email" required /></label>
+            <label class="field"><span>Nomor telepon/WhatsApp resmi</span><input name="phone" type="tel" required /></label>
+            <label class="field"><span>Nama PIC</span><input name="contact_name" required /></label>
+            <label class="field"><span>Jabatan/peran PIC</span><input name="contact_role" required /></label>
+            <label class="field field-full"><span>Alamat/domisili</span><textarea name="address" required></textarea></label>
+            <label class="field field-full"><span>Area operasi, pisahkan dengan koma</span><input name="operational_areas" placeholder="Demak, Kudus, Semarang" required /></label>
+            <label class="field"><span>URL logo (opsional)</span><input name="logo_url" type="url" placeholder="https://…" /></label>
+            <label class="field"><span>Website/media sosial (opsional)</span><input name="website" type="url" placeholder="https://…" /></label>
+          </div>
+        </section>
+
+        <section class="form-section" id="organization-documents">
+          <h2>Berkas lembaga</h2><p>Minimal dokumen legal/SK dan surat mandat PIC.</p>
+          <div class="form-grid-wide">
+            <label class="field"><span>Tautan dokumen legal/SK</span><input name="legal" type="url" placeholder="Tautan Drive/PDF" /></label>
+            <label class="field"><span>Tautan surat mandat PIC</span><input name="mandate" type="url" placeholder="Tautan Drive/PDF" /></label>
+            <label class="field field-full"><span>Tautan portofolio kegiatan (opsional)</span><input name="portfolio_org" type="url" placeholder="Dokumentasi kegiatan sebelumnya" /></label>
+          </div>
+        </section>
+
+        <section class="form-section" id="individual-documents" hidden>
+          <h2>Berkas relawan individu</h2><p>Identitas hanya dipakai admin untuk verifikasi dan tidak ditampilkan di halaman laporan.</p>
+          <div class="form-grid-wide">
+            <label class="field"><span>Tautan identitas</span><input name="identity" type="url" placeholder="Tautan Drive/PDF" /></label>
+            <label class="field"><span>Sertifikat pelatihan (opsional)</span><input name="certificate" type="url" placeholder="First aid, SAR, pertanian, dll." /></label>
+            <label class="field field-full"><span>Portofolio/referensi (opsional)</span><input name="portfolio_individual" type="url" /></label>
+          </div>
+        </section>
+
+        <div class="document-note">Untuk demo, berkas menggunakan tautan. Pada produksi, bagian ini sebaiknya diganti adapter object storage dengan akses privat, batas ukuran, antivirus scan, dan masa retensi.</div>
+        <div class="modal-actions"><a class="button button-outline" href="/login">Batal</a><button class="button button-primary" type="submit">Kirim untuk diverifikasi</button></div>
+        <div class="submission-result" id="submission-result" role="status"></div>
+      </form>
+    </main>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/static/site.js"></script>
+    <script src="/static/register.js"></script>
+  </body>
+</html>

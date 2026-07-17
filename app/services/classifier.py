@@ -312,6 +312,7 @@ def _unwrap_conversation_context(text: str) -> str:
     if "[RIWAYAT_LAPORAN]" not in text or "[JAWABAN_TERBARU]" not in text:
         return text
     history = text.split("[RIWAYAT_LAPORAN]", 1)[1].split("[FIELD_AKTIF]", 1)[0]
+    history = history.split("[CONFIDENCE_INTERNAL]", 1)[0]
     latest = text.split("[JAWABAN_TERBARU]", 1)[1]
     return f"{history.strip()}\n{latest.strip()}".strip()
 
@@ -595,7 +596,10 @@ class OpenRouterClassifier:
                 "type": "text",
                 "text": (
                     "Ekstrak laporan petani berikut. Nilai hanya fakta yang terlihat/tertulis. "
-                    "Input dapat berisi RIWAYAT_LAPORAN, FIELD_AKTIF, dan JAWABAN_TERBARU. "
+                    "Input dapat berisi RIWAYAT_LAPORAN, CONFIDENCE_INTERNAL, FIELD_AKTIF, "
+                    "dan JAWABAN_TERBARU. CONFIDENCE_INTERNAL adalah state analisis sebelumnya, "
+                    "bukan ucapan pelapor; gunakan untuk mengkritisi field yang belum kuat dan "
+                    "perbarui nilainya hanya jika jawaban atau bukti baru mendukung. "
                     "Gunakan field aktif untuk memahami jawaban singkat seperti ya/tidak, lalu "
                     "kembalikan keadaan kumulatif laporan berdasarkan riwayat dan jawaban terbaru. "
                     "Ekstrak desa/kelurahan ke village, kecamatan ke district, dan "
@@ -609,11 +613,18 @@ class OpenRouterClassifier:
                     "pelapor menulis BELUM TAHU dan tidak ada bukti lain, gunakan array kosong. "
                     "Beri confidence 0 sampai 1 untuk setiap field berdasarkan keyakinan ekstraksi, "
                     "bukan keyakinan bahwa pelapor berkata benar. Masukkan alasan hanya untuk field "
-                    "yang meragukan ke uncertainties. Jika ada foto, nilai apakah foto relevan dengan "
-                    "bencana/kerusakan pertanian dan konsisten dengan laporan. Foto acak, screenshot, "
-                    "atau foto yang tidak menunjukkan dampak harus relevant=false. Jangan mengklaim "
-                    "keaslian, waktu, atau lokasi foto hanya dari tampilan visual. Jika teks belum cukup "
-                    "untuk dibandingkan, matches_report harus null. Jika tidak ada foto, image_analysis null. "
+                    "yang meragukan ke uncertainties. Jika ada foto, bedakan relevansi umum dari kekuatan "
+                    "bukti. relevant=true hanya berarti foto masih berkaitan; itu tidak otomatis berarti "
+                    "laporan terverifikasi. Nilai apakah kondisi yang diklaim benar-benar terlihat dan "
+                    "konsisten dengan deskripsi. Foto acak atau yang tidak menunjukkan dampak harus "
+                    "relevant=false. Foto satelit, aerial/drone, screenshot, foto layar, foto stok, atau "
+                    "foto ulang hanya boleh menjadi bukti pendukung: sebutkan jenis sumber itu secara "
+                    "eksplisit di findings/reason, gunakan matches_report=null bila detail kejadian tidak "
+                    "dapat dipastikan, dan batasi confidence maksimal 0.55. Untuk satu foto lapangan yang "
+                    "jelas sekalipun, batasi confidence maksimal 0.75 karena waktu, keaslian, dan kecocokan "
+                    "lokasi tidak bisa dibuktikan hanya dari visual. Jangan mengklaim keaslian, waktu, atau "
+                    "lokasi foto hanya dari tampilan visual. Jika teks belum cukup untuk dibandingkan, "
+                    "matches_report harus null. Jika tidak ada foto, image_analysis null. "
                     "Jika lokasi, tingkat keparahan, atau kebutuhan medis belum jelas, masukkan "
                     "field tersebut ke missing_fields. Ekstrak juga nama, status petani lokal, "
                             "domisili, dan kesediaan dihubungi hanya bila dinyatakan jelas; selain itu null. "

@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+from functools import lru_cache
+from math import asin, cos, radians, sin, sqrt
 import re
 
 
@@ -8,18 +10,86 @@ class GeoResult:
     lon: float
     label: str
     region_name: str
+    village: str = ""
+    district: str = ""
+    regency: str = ""
+
+
+GENERIC_SHARED_LOCATION_LABELS = {
+    "shared whatsapp location",
+    "shared location",
+    "current location",
+    "dropped pin",
+}
+
+
+def is_generic_location_label(label: str | None) -> bool:
+    return not label or label.strip().lower() in GENERIC_SHARED_LOCATION_LABELS
 
 
 class MockGeocoder:
     places = {
-        "depok": GeoResult(-6.4025, 106.7942, "Depok", "Depok"),
-        "cibubur": GeoResult(-6.3681, 106.9014, "Cibubur", "Cibubur"),
-        "cimanggis": GeoResult(-6.3606, 106.8611, "Cimanggis", "Cimanggis"),
-        "sayung": GeoResult(-6.9218, 110.5157, "Sayung, Demak", "Sayung"),
-        "karanganyar": GeoResult(-6.9704, 110.7478, "Karanganyar, Demak", "Karanganyar Demak"),
-        "demak": GeoResult(-6.8919, 110.6396, "Kabupaten Demak", "Demak"),
-        "kudus": GeoResult(-6.8048, 110.8405, "Kabupaten Kudus", "Kudus"),
-        "semarang": GeoResult(-6.9667, 110.4167, "Kota Semarang", "Semarang"),
+        "depok": GeoResult(
+            -6.4025, 106.7942, "Depok", "Depok", regency="Kota Depok"
+        ),
+        "cibubur": GeoResult(
+            -6.3681,
+            106.9014,
+            "Cibubur",
+            "Cibubur",
+            village="Cibubur",
+            district="Ciracas",
+            regency="Kota Jakarta Timur",
+        ),
+        "cimanggis": GeoResult(
+            -6.3606,
+            106.8611,
+            "Cimanggis",
+            "Cimanggis",
+            district="Cimanggis",
+            regency="Kota Depok",
+        ),
+        "sayung": GeoResult(
+            -6.9218,
+            110.5157,
+            "Sayung, Demak",
+            "Sayung",
+            village="Sayung",
+            district="Sayung",
+            regency="Kabupaten Demak",
+        ),
+        "karanganyar": GeoResult(
+            -6.9704,
+            110.7478,
+            "Karanganyar, Demak",
+            "Karanganyar Demak",
+            village="Karanganyar",
+            district="Karanganyar",
+            regency="Kabupaten Demak",
+        ),
+        "demak": GeoResult(
+            -6.8919,
+            110.6396,
+            "Kabupaten Demak",
+            "Demak",
+            district="Demak",
+            regency="Kabupaten Demak",
+        ),
+        "kudus": GeoResult(
+            -6.8048,
+            110.8405,
+            "Kabupaten Kudus",
+            "Kudus",
+            district="Kota Kudus",
+            regency="Kabupaten Kudus",
+        ),
+        "semarang": GeoResult(
+            -6.9667,
+            110.4167,
+            "Kota Semarang",
+            "Semarang",
+            regency="Kota Semarang",
+        ),
     }
 
     _maps_query = re.compile(r"[?&]q=([\-0-9.]+)%2C([\-0-9.]+)")
@@ -27,19 +97,28 @@ class MockGeocoder:
 
     def resolve(self, text: str, lat: float | None = None, lon: float | None = None, label: str | None = None) -> GeoResult | None:
         if lat is not None and lon is not None:
-            display_label = label or "Shared WhatsApp location"
-            region_name = f"Area {lat:.2f},{lon:.2f}"
-            if label:
-                lower_label = label.lower()
-                for key, known_place in self.places.items():
-                    if key in lower_label:
-                        region_name = known_place.label
-                        break
-                else:
-                    region_name = ", ".join(
-                        part.strip() for part in label.split(",")[:2] if part.strip()
-                    ) or region_name
-            return GeoResult(lat, lon, display_label, region_name)
+            reverse = self._reverse_coordinates(round(lat, 5), round(lon, 5))
+            if reverse is not None:
+                return GeoResult(
+                    lat,
+                    lon,
+                    reverse.label,
+                    reverse.region_name,
+                    village=reverse.village,
+                    district=reverse.district,
+                    regency=reverse.regency,
+                )
+            display_label = (
+                label
+                if not is_generic_location_label(label)
+                else f"{lat:.5f}, {lon:.5f}"
+            )
+            return GeoResult(
+                lat,
+                lon,
+                display_label,
+                display_label or f"Area {lat:.2f},{lon:.2f}",
+            )
 
         lower = f"{text} {label or ''}".lower()
 
@@ -47,12 +126,7 @@ class MockGeocoder:
         if maps_match:
             lat_value = float(maps_match.group(1))
             lon_value = float(maps_match.group(2))
-            return GeoResult(
-                lat_value,
-                lon_value,
-                label or "Shared WhatsApp location",
-                label or f"Shared Location {lat_value:.4f},{lon_value:.4f}",
-            )
+            return self.resolve(text, lat_value, lon_value, label)
 
         for key, result in self.places.items():
             if key in lower:
@@ -115,3 +189,104 @@ class MockGeocoder:
                 pass
 
         return None
+
+    @lru_cache(maxsize=256)
+    def _reverse_coordinates(self, lat: float, lon: float) -> GeoResult | None:
+        nearby = min(
+            self.places.values(),
+            key=lambda place: self._distance_km(lat, lon, place.lat, place.lon),
+        )
+        if (
+            self._distance_km(lat, lon, nearby.lat, nearby.lon) <= 5
+            and (nearby.village or nearby.district or nearby.regency)
+        ):
+            label = ", ".join(
+                value
+                for value in [nearby.village, nearby.district, nearby.regency]
+                if value
+            )
+            return GeoResult(
+                lat,
+                lon,
+                label or nearby.label,
+                nearby.region_name,
+                village=nearby.village,
+                district=nearby.district,
+                regency=nearby.regency,
+            )
+
+        import json
+        import urllib.parse
+        import urllib.request
+
+        url = "https://nominatim.openstreetmap.org/reverse?" + urllib.parse.urlencode(
+            {
+                "lat": lat,
+                "lon": lon,
+                "format": "jsonv2",
+                "addressdetails": 1,
+                "zoom": 18,
+            }
+        )
+        request = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "GarudaHacksDisasterTriageDemo/1.0 "
+                "(daffaismail@gmail.com)"
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=3) as response:
+                result = json.loads(response.read().decode())
+        except Exception:
+            return None
+
+        address = result.get("address") or {}
+        village = self._first_address_value(
+            address, "village", "town", "hamlet", "suburb", "neighbourhood"
+        )
+        district = self._first_address_value(
+            address, "municipality", "city_district", "district"
+        )
+        regency = self._first_address_value(
+            address, "county", "city", "state_district"
+        )
+        label = ", ".join(
+            value for value in [village, district, regency] if value
+        )
+        if not label:
+            label = result.get("display_name", "").strip()
+        if not label:
+            return None
+        return GeoResult(
+            lat,
+            lon,
+            label,
+            regency or district or village or label.split(",")[0],
+            village=village,
+            district=district,
+            regency=regency,
+        )
+
+    @staticmethod
+    def _first_address_value(address: dict[str, object], *keys: str) -> str:
+        for key in keys:
+            value = address.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
+
+    @staticmethod
+    def _distance_km(
+        lat_a: float, lon_a: float, lat_b: float, lon_b: float
+    ) -> float:
+        lat1, lon1, lat2, lon2 = map(
+            radians, [lat_a, lon_a, lat_b, lon_b]
+        )
+        dlat = lat2 - lat1
+        dlon = lon2 - lon1
+        haversine = (
+            sin(dlat / 2) ** 2
+            + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
+        )
+        return 6371 * 2 * asin(sqrt(haversine))

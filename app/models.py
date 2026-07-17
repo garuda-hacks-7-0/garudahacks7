@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import Enum
+from secrets import token_urlsafe
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -47,6 +48,23 @@ class Organization(Base):
     name: Mapped[str] = mapped_column(String(140), unique=True, index=True)
     type: Mapped[str] = mapped_column(String(40))
     verified: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    applicant_kind: Mapped[str] = mapped_column(
+        String(30), default="organization", index=True
+    )
+    registration_status: Mapped[str] = mapped_column(
+        String(30), default="pending", index=True
+    )
+    email: Mapped[str] = mapped_column(String(160), default="")
+    phone: Mapped[str] = mapped_column(String(40), default="")
+    address: Mapped[str] = mapped_column(Text, default="")
+    contact_name: Mapped[str] = mapped_column(String(140), default="")
+    contact_role: Mapped[str] = mapped_column(String(100), default="")
+    logo_url: Mapped[str] = mapped_column(String(1000), default="")
+    website: Mapped[str] = mapped_column(String(300), default="")
+    operational_areas: Mapped[list[str]] = mapped_column(JSON, default=list)
+    document_links: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
+    verification_note: Mapped[str] = mapped_column(Text, default="")
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     report_updates: Mapped[list["ReportUpdate"]] = relationship(back_populates="organization")
@@ -93,6 +111,9 @@ class Report(Base):
     __tablename__ = "reports"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    public_token: Mapped[str] = mapped_column(
+        String(64), unique=True, index=True, default=lambda: token_urlsafe(18)
+    )
     sender: Mapped[str] = mapped_column(String(80), index=True)
     text: Mapped[str] = mapped_column(Text, default="")
     incident_description: Mapped[str] = mapped_column(Text, default="")
@@ -164,6 +185,7 @@ class ReportUpdate(Base):
     report_id: Mapped[int] = mapped_column(ForeignKey("reports.id"), index=True)
     status: Mapped[str] = mapped_column(String(30), index=True)
     note: Mapped[str] = mapped_column(Text, default="")
+    documentation_urls: Mapped[list[str]] = mapped_column(JSON, default=list)
     updated_by: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 

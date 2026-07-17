@@ -22,6 +22,7 @@
         <a class="nav-link" href="/">Beranda</a>
         <a class="nav-link active" href="/map">Peta</a>
         <a class="nav-link" href="/reports" data-responder-only>Laporan</a>
+        <a class="nav-link" href="/admin" data-admin-only>Admin</a>
       </nav>
       <div class="header-actions">
         <a class="whatsapp-link" data-whatsapp-link href="#" aria-label="Hubungi Peta.ni melalui WhatsApp">
@@ -94,8 +95,9 @@
         <div class="panel-header"><h2>Update status laporan</h2><button class="close-button" data-close-dialog type="button" aria-label="Tutup">×</button></div>
         <input id="status-report-id" type="hidden" />
         <div class="modal-form">
-          <label class="field"><span>Status baru</span><select id="new-status" required><option value="verified">Terverifikasi</option><option value="in_progress">Sedang ditangani</option><option value="resolved">Selesai</option><option value="rejected">Perlu diperiksa ulang</option></select></label>
+          <label class="field"><span>Status penanganan</span><select id="new-status" required><option value="in_progress">Sedang ditangani</option><option value="resolved">Selesai</option><option value="rejected">Minta pemeriksaan ulang</option></select></label>
           <label class="field"><span>Catatan untuk petani</span><textarea id="status-note" placeholder="Contoh: tim lapangan menuju lokasi."></textarea></label>
+          <label class="field"><span>Tautan dokumentasi (opsional, satu per baris)</span><textarea id="status-documentation" placeholder="https://contoh.org/foto-penanganan.jpg"></textarea></label>
         </div>
         <div class="modal-actions"><button class="button button-outline button-small" data-close-dialog type="button">Batal</button><button class="button button-primary button-small" type="submit">Simpan update</button></div>
       </form>
@@ -114,7 +116,6 @@
       </form>
     </dialog>
 
-    <!-- Istilah operasional ini dipertahankan untuk dashboard responder: Kontak kantor desa terdekat, Bantuan dibutuhkan, Confidence per field. -->
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="/static/site.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

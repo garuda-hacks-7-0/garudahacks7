@@ -24,8 +24,63 @@ class OrganizationOut(BaseModel):
     name: str
     type: str
     verified: bool
+    applicant_kind: str = "organization"
+    registration_status: str = "pending"
+    email: str = ""
+    phone: str = ""
+    address: str = ""
+    contact_name: str = ""
+    contact_role: str = ""
+    logo_url: str = ""
+    website: str = ""
+    operational_areas: list[str] = Field(default_factory=list)
+    document_links: dict[str, str] = Field(default_factory=dict)
+    verification_note: str = ""
+    verified_at: datetime | None = None
+    created_at: datetime | None = None
 
     model_config = {"from_attributes": True}
+
+
+class OrganizationPublicOut(BaseModel):
+    id: int
+    name: str
+    type: str
+    verified: bool
+    logo_url: str = ""
+    contact_name: str = ""
+    contact_role: str = ""
+    phone: str = ""
+    email: str = ""
+    website: str = ""
+
+    model_config = {"from_attributes": True}
+
+
+class OrganizationRegisterIn(BaseModel):
+    applicant_kind: Literal["organization", "individual"]
+    name: str = Field(min_length=2, max_length=140)
+    type: str = Field(min_length=2, max_length=40)
+    email: str = Field(min_length=5, max_length=160)
+    phone: str = Field(min_length=8, max_length=40)
+    address: str = Field(min_length=8, max_length=1000)
+    contact_name: str = Field(min_length=2, max_length=140)
+    contact_role: str = Field(min_length=2, max_length=100)
+    logo_url: str = Field(default="", max_length=1000)
+    website: str = Field(default="", max_length=300)
+    operational_areas: list[str] = Field(min_length=1, max_length=20)
+    document_links: dict[str, str] = Field(default_factory=dict)
+
+
+class OrganizationVerificationIn(BaseModel):
+    status: Literal["verified", "rejected"]
+    note: str = Field(default="", max_length=1000)
+
+
+class OrganizationVerificationResult(BaseModel):
+    organization_id: int
+    status: str
+    verified: bool
 
 
 class ReportUpdateOut(BaseModel):
@@ -34,7 +89,52 @@ class ReportUpdateOut(BaseModel):
     note: str
     organization_id: int
     organization_name: str
+    organization_logo_url: str = ""
+    organization_contact_name: str = ""
+    organization_contact_role: str = ""
+    organization_phone: str = ""
+    organization_email: str = ""
+    documentation_urls: list[str] = Field(default_factory=list)
     created_at: datetime
+
+
+class PublicTrackingOrganizationOut(BaseModel):
+    name: str
+    type: str
+    logo_url: str = ""
+    contact_name: str = ""
+    contact_role: str = ""
+    phone: str = ""
+    email: str = ""
+    website: str = ""
+
+
+class PublicReportUpdateOut(BaseModel):
+    id: int
+    status: str
+    note: str
+    documentation_urls: list[str] = Field(default_factory=list)
+    organization: PublicTrackingOrganizationOut
+    created_at: datetime
+
+
+class PublicReportTrackingOut(BaseModel):
+    tracking_id: str
+    incident_description: str
+    ai_summary: str
+    category: str
+    severity: str
+    needs: list[str] = Field(default_factory=list)
+    response_status: str
+    village: str
+    district: str
+    regency: str
+    location_label: str | None
+    evidence_urls: list[str] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+    updates: list[PublicReportUpdateOut] = Field(default_factory=list)
+    responsible_organization: PublicTrackingOrganizationOut | None = None
 
 
 class FarmerProfileOut(BaseModel):
@@ -137,6 +237,7 @@ class ReportStatusUpdateIn(BaseModel):
     status: Literal["verified", "in_progress", "resolved", "rejected"]
     organization_id: int
     note: str = Field(default="", max_length=1000)
+    documentation_urls: list[str] = Field(default_factory=list, max_length=10)
 
 
 class ReportStatusUpdateResult(BaseModel):

@@ -44,6 +44,7 @@ def _upgrade_demo_sqlite_schema() -> None:
         return
     existing = {column["name"] for column in inspector.get_columns("reports")}
     additions = {
+        "public_token": "VARCHAR(64)",
         "needs": "JSON NOT NULL DEFAULT '[]'",
         "field_confidences": "JSON NOT NULL DEFAULT '{}'",
         "field_confidence_reasons": "JSON NOT NULL DEFAULT '{}'",
@@ -89,6 +90,14 @@ def _upgrade_demo_sqlite_schema() -> None:
             "THEN 'needs_verification' ELSE 'missing' END "
             "WHERE location_verification_status = 'missing'"
         )
+        connection.exec_driver_sql(
+            "UPDATE reports SET public_token = lower(hex(randomblob(16))) "
+            "WHERE public_token IS NULL OR public_token = ''"
+        )
+        connection.exec_driver_sql(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_reports_public_token "
+            "ON reports (public_token)"
+        )
 
         table_additions = {
             "farmer_profiles": {
@@ -98,6 +107,24 @@ def _upgrade_demo_sqlite_schema() -> None:
             },
             "inbound_messages": {
                 "button_payload": "VARCHAR(128)",
+            },
+            "organizations": {
+                "applicant_kind": "VARCHAR(30) NOT NULL DEFAULT 'organization'",
+                "registration_status": "VARCHAR(30) NOT NULL DEFAULT 'pending'",
+                "email": "VARCHAR(160) NOT NULL DEFAULT ''",
+                "phone": "VARCHAR(40) NOT NULL DEFAULT ''",
+                "address": "TEXT NOT NULL DEFAULT ''",
+                "contact_name": "VARCHAR(140) NOT NULL DEFAULT ''",
+                "contact_role": "VARCHAR(100) NOT NULL DEFAULT ''",
+                "logo_url": "VARCHAR(1000) NOT NULL DEFAULT ''",
+                "website": "VARCHAR(300) NOT NULL DEFAULT ''",
+                "operational_areas": "JSON NOT NULL DEFAULT '[]'",
+                "document_links": "JSON NOT NULL DEFAULT '{}'",
+                "verification_note": "TEXT NOT NULL DEFAULT ''",
+                "verified_at": "DATETIME",
+            },
+            "report_updates": {
+                "documentation_urls": "JSON NOT NULL DEFAULT '[]'",
             },
         }
         table_names = set(inspector.get_table_names())
@@ -112,3 +139,9 @@ def _upgrade_demo_sqlite_schema() -> None:
                     connection.exec_driver_sql(
                         f"ALTER TABLE {table_name} ADD COLUMN {name} {definition}"
                     )
+
+        if "organizations" in table_names:
+            connection.exec_driver_sql(
+                "UPDATE organizations SET registration_status = 'verified' "
+                "WHERE verified = 1 AND registration_status = 'pending'"
+            )
