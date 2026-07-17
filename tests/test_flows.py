@@ -272,7 +272,8 @@ def test_required_form_rejects_one_by_one_answers_without_calling_ai(db):
     )
     assert report is not None
     assert report.evidence_urls == ["https://example.com/evidence.jpg"]
-    assert "FORM LAPORAN PETANI" in reply
+    assert "Foto sudah tersimpan untuk draft" in reply
+    assert "FORM LAPORAN PETANI" not in reply
     assert len(classifier.calls) == 1
 
     same_report, reply = service.ingest(
@@ -309,6 +310,45 @@ def test_required_form_rejects_one_by_one_answers_without_calling_ai(db):
     ]
     assert "siap ditindaklanjuti" in reply
     assert len(classifier.calls) == 2
+
+
+def test_share_location_before_form_only_confirms_draft(db):
+    classifier = VisionCountingClassifier()
+    service = TriageService(
+        classifier=classifier,
+        geocoder=StubGeocoder(),
+        privacy_consent_required=False,
+        form_required=True,
+    )
+
+    report, reply = service.ingest(
+        db,
+        sender="farmer-location-first",
+        text="",
+        lat=-6.2578268,
+        lon=106.6184311,
+    )
+
+    assert report is not None
+    assert report.location_shared is True
+    assert "Lokasi sudah tersimpan untuk draft" in reply
+    assert "FORM LAPORAN PETANI" not in reply
+    assert "Laporanmu tersimpan" not in reply
+
+    same_report, reply = service.ingest(
+        db,
+        sender="farmer-location-first",
+        text=(
+            "FORM LAPORAN PETANI\n"
+            "Deskripsi dampak: Banjir merusak lahan\n"
+            "Bantuan yang dibutuhkan: Pompa\n"
+            "Petani/penggarap di lokasi: YA"
+        ),
+    )
+
+    assert same_report.id == report.id
+    assert "foto bukti terdampak belum diunggah" in reply
+    assert "FORM LAPORAN PETANI" not in reply
 
 
 def test_production_form_requires_precise_manual_location(db):
@@ -511,7 +551,7 @@ def test_greeting_is_friendly_and_does_not_create_a_report(db):
     report, reply = service.ingest(db, sender="farmer-greeting", text="Hi")
 
     assert report is None
-    assert "terima kasih sudah menghubungi PetaNih! 🌾" in reply
+    assert "terima kasih sudah menghubungi Peta.ni! 🌾" in reply
     assert "upload minimal satu foto" in reply
     assert "FORM LAPORAN PETANI" in reply
     assert "Share Location" in reply
@@ -811,7 +851,7 @@ def test_stale_greeting_draft_is_cleaned_up_after_upgrade(db):
     report, reply = service.ingest(db, sender="farmer-stale", text="Hi")
 
     assert report is None
-    assert "terima kasih sudah menghubungi PetaNih! 🌾" in reply
+    assert "terima kasih sudah menghubungi Peta.ni! 🌾" in reply
     assert db.query(Report).count() == 0
     assert db.query(ConversationState).count() == 0
 
