@@ -351,6 +351,79 @@ def test_share_location_before_form_only_confirms_draft(db):
     assert "FORM LAPORAN PETANI" not in reply
 
 
+def test_form_and_multiple_photos_in_one_message_use_one_report(db):
+    service = TriageService(
+        classifier=VisionCountingClassifier(),
+        geocoder=StubGeocoder(),
+        privacy_consent_required=False,
+        form_required=True,
+    )
+
+    report, reply = service.ingest(
+        db,
+        sender="farmer-form-with-photos",
+        text=(
+            "FORM LAPORAN PETANI\n"
+            "Desa/Kelurahan: Sayung\n"
+            "Kecamatan: Sayung\n"
+            "Kota/Kabupaten: Demak\n"
+            "Deskripsi dampak: Banjir merendam sawah dan merusak tanaman.\n"
+            "Bantuan yang dibutuhkan: Pompa\n"
+            "Petani/penggarap di lokasi: YA"
+        ),
+        image_urls=[
+            "https://example.com/evidence-1.jpg",
+            "https://example.com/evidence-2.jpg",
+        ],
+    )
+
+    assert report.status == "complete"
+    assert report.evidence_urls == [
+        "https://example.com/evidence-1.jpg",
+        "https://example.com/evidence-2.jpg",
+    ]
+    assert db.query(Report).count() == 1
+    assert "siap ditindaklanjuti" in reply
+
+
+def test_album_photo_after_completion_attaches_to_recent_report(db):
+    service = TriageService(
+        classifier=VisionCountingClassifier(),
+        geocoder=StubGeocoder(),
+        privacy_consent_required=False,
+        form_required=True,
+    )
+    first_report, _ = service.ingest(
+        db,
+        sender="farmer-album",
+        text=(
+            "FORM LAPORAN PETANI\n"
+            "Desa/Kelurahan: Sayung\n"
+            "Kecamatan: Sayung\n"
+            "Kota/Kabupaten: Demak\n"
+            "Deskripsi dampak: Banjir merendam sawah dan merusak tanaman.\n"
+            "Bantuan yang dibutuhkan: Pompa\n"
+            "Petani/penggarap di lokasi: YA"
+        ),
+        image_url="https://example.com/album-1.jpg",
+    )
+
+    same_report, reply = service.ingest(
+        db,
+        sender="farmer-album",
+        text="",
+        image_url="https://example.com/album-2.jpg",
+    )
+
+    assert same_report.id == first_report.id
+    assert same_report.evidence_urls == [
+        "https://example.com/album-1.jpg",
+        "https://example.com/album-2.jpg",
+    ]
+    assert db.query(Report).count() == 1
+    assert "foto tambahan sudah tersimpan" in reply
+
+
 def test_production_form_requires_precise_manual_location(db):
     service = TriageService(
         classifier=VisionCountingClassifier(),
@@ -551,7 +624,7 @@ def test_greeting_is_friendly_and_does_not_create_a_report(db):
     report, reply = service.ingest(db, sender="farmer-greeting", text="Hi")
 
     assert report is None
-    assert "terima kasih sudah menghubungi Petani! 🌾" in reply
+    assert "terima kasih sudah menghubungi Peta.ni! 🌾" in reply
     assert "upload minimal satu foto" in reply
     assert "FORM LAPORAN PETANI" in reply
     assert "Share Location" in reply
@@ -603,6 +676,32 @@ def test_whatsapp_webhook_acknowledges_immediately_and_queues_ai_work():
     assert response.body.endswith(b"<Response/>")
     assert len(tasks.tasks) == 1
     assert tasks.tasks[0].func is webhooks._process_whatsapp_message
+
+
+def test_whatsapp_webhook_keeps_form_body_and_all_media_urls():
+    tasks = BackgroundTasks()
+    form = (
+        "FORM LAPORAN PETANI\n"
+        "Deskripsi dampak: Banjir merendam sawah.\n"
+        "Bantuan yang dibutuhkan: Pompa\n"
+        "Petani/penggarap di lokasi: YA"
+    )
+
+    webhooks.whatsapp_webhook(
+        tasks,
+        from_number="whatsapp:+62000",
+        body=form,
+        media_url_0="https://example.com/0.jpg",
+        media_url_3="https://example.com/3.jpg",
+        media_url_9="https://example.com/9.jpg",
+    )
+
+    assert tasks.tasks[0].args[1] == form
+    assert tasks.tasks[0].args[2] == [
+        "https://example.com/0.jpg",
+        "https://example.com/3.jpg",
+        "https://example.com/9.jpg",
+    ]
 
 
 def test_whatsapp_quick_reply_payload_maps_to_consent_action():
@@ -851,7 +950,7 @@ def test_stale_greeting_draft_is_cleaned_up_after_upgrade(db):
     report, reply = service.ingest(db, sender="farmer-stale", text="Hi")
 
     assert report is None
-    assert "terima kasih sudah menghubungi Petani! 🌾" in reply
+    assert "terima kasih sudah menghubungi Peta.ni! 🌾" in reply
     assert db.query(Report).count() == 0
     assert db.query(ConversationState).count() == 0
 

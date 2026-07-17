@@ -157,6 +157,13 @@ def whatsapp_webhook(
     media_url_0: str | None = Form(default=None, alias="MediaUrl0"),
     media_url_1: str | None = Form(default=None, alias="MediaUrl1"),
     media_url_2: str | None = Form(default=None, alias="MediaUrl2"),
+    media_url_3: str | None = Form(default=None, alias="MediaUrl3"),
+    media_url_4: str | None = Form(default=None, alias="MediaUrl4"),
+    media_url_5: str | None = Form(default=None, alias="MediaUrl5"),
+    media_url_6: str | None = Form(default=None, alias="MediaUrl6"),
+    media_url_7: str | None = Form(default=None, alias="MediaUrl7"),
+    media_url_8: str | None = Form(default=None, alias="MediaUrl8"),
+    media_url_9: str | None = Form(default=None, alias="MediaUrl9"),
     latitude: float | None = Form(default=None, alias="Latitude"),
     longitude: float | None = Form(default=None, alias="Longitude"),
     address: str | None = Form(default=None, alias="Address"),
@@ -177,7 +184,22 @@ def whatsapp_webhook(
         _process_whatsapp_message,
         from_number,
         canonical_body,
-        [url for url in [media_url_0, media_url_1, media_url_2] if url],
+        [
+            url
+            for url in [
+                media_url_0,
+                media_url_1,
+                media_url_2,
+                media_url_3,
+                media_url_4,
+                media_url_5,
+                media_url_6,
+                media_url_7,
+                media_url_8,
+                media_url_9,
+            ]
+            if isinstance(url, str) and url.strip()
+        ],
         latitude,
         longitude,
         location_label,

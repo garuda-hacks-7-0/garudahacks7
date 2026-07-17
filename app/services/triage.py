@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import re
 
@@ -29,6 +29,7 @@ from app.services.weather import MockWeatherRisk
 EVIDENCE_TARGET = 1
 READINESS_THRESHOLD = 70
 FIELD_CONFIDENCE_THRESHOLD = 0.7
+RECENT_MEDIA_WINDOW = timedelta(minutes=2)
 GREETINGS = {"hi", "hai", "halo", "hello", "hey", "pagi", "siang", "sore", "malam"}
 START_COMMANDS = {
     "lapor",
@@ -231,6 +232,34 @@ class TriageService:
                     state.pending_fields = current_pending
                     db.add(state)
                     db.commit()
+
+        # Twilio delivers a WhatsApp album as separate inbound messages (one
+        # media item per webhook). If the form + first photo already completed
+        # the report, associate the immediately following media-only messages
+        # with that report instead of opening duplicate drafts.
+        if (
+            state is None
+            and evidence_urls
+            and lat is None
+            and lon is None
+            and not self.is_report_form(text)
+            and not self._is_cancel_command(text)
+            and not self._is_start_command(text)
+            and not self._is_greeting(text)
+            and not self._is_form_copy_command(text, button_payload)
+        ):
+            recent_report = self._recent_completed_report_for_media(
+                db, sender=sender
+            )
+            if recent_report is not None:
+                state = ConversationState(
+                    sender=sender,
+                    report_id=recent_report.id,
+                    pending_fields="",
+                )
+                db.add(state)
+                db.flush()
+                active_report = recent_report
 
         if self._is_form_copy_command(text, button_payload):
             return active_report, FORM_ONLY_MESSAGE
@@ -642,6 +671,14 @@ class TriageService:
                 f"{self._readiness_message(report)}",
             )
 
+        adding_media_to_completed_report = bool(
+            self.form_required
+            and report.status == ReportStatus.complete.value
+            and not state.pending_fields
+            and evidence_urls
+            and not self.is_report_form(text)
+        )
+
         profile = report.farmer_profile or self._get_or_create_profile(db, state.sender)
         report.farmer_profile = profile
         current_fields = self._pending_fields(state.pending_fields)
@@ -649,8 +686,9 @@ class TriageService:
         recognized_fields: set[str] = set()
 
         report.text = self._append_message(report.text, text)
-        self._apply_classification_to_report(report, classification)
-        self._apply_classification_to_profile(profile, classification)
+        if not adding_media_to_completed_report:
+            self._apply_classification_to_report(report, classification)
+            self._apply_classification_to_profile(profile, classification)
         previous_evidence_count = len(report.evidence_urls or [])
         report.evidence_urls = self._merge_evidence_urls(
             report.evidence_urls or [], evidence_urls
@@ -844,6 +882,18 @@ class TriageService:
             return report, self._draft_attachment_message(report)
         if remaining_fields:
             return report, prefix + self._readiness_message(report)
+        if adding_media_to_completed_report:
+            added_count = len(report.evidence_urls or []) - previous_evidence_count
+            if added_count > 0:
+                saved_message = (
+                    f"📷 {added_count} foto tambahan sudah tersimpan ke "
+                    f"laporan *TT-{report.id:04d}*."
+                )
+            else:
+                saved_message = (
+                    f"📷 Foto tersebut sudah ada di laporan *TT-{report.id:04d}*."
+                )
+            return report, f"{saved_message}\n\n{self._tracking_message(report)}"
         return (
             report,
             f"✅ Data TT-{report.id:04d} sudah cukup dan siap ditindaklanjuti. "
@@ -1419,6 +1469,30 @@ class TriageService:
         return (
             "Laporanmu tersimpan. Lihat status dan update lengkap di: "
             f"{self.public_url}/track/{report.public_token}"
+        )
+
+    def _recent_completed_report_for_media(
+        self, db: Session, *, sender: str
+    ) -> Report | None:
+        cutoff = datetime.utcnow() - RECENT_MEDIA_WINDOW
+        candidates = (
+            db.query(Report)
+            .filter(
+                Report.sender == sender,
+                Report.status == ReportStatus.complete.value,
+                Report.updated_at >= cutoff,
+            )
+            .order_by(Report.updated_at.desc(), Report.id.desc())
+            .limit(3)
+            .all()
+        )
+        return next(
+            (
+                report
+                for report in candidates
+                if self.is_report_form(report.text or "")
+            ),
+            None,
         )
 
     def _draft_attachment_message(self, report: Report) -> str:
