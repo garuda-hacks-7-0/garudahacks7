@@ -1,4 +1,4 @@
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 import base64
 import json
 import logging
@@ -30,6 +30,13 @@ class Classification:
     is_local_farmer: bool | None = None
     home_location: str | None = None
     available_for_follow_up: bool | None = None
+    field_confidences: dict[str, float] = field(default_factory=dict)
+    field_confidence_reasons: dict[str, str] = field(default_factory=dict)
+    image_relevant: bool | None = None
+    image_matches_report: bool | None = None
+    image_findings: str | None = None
+    image_confidence: float = 0.0
+    image_reason: str | None = None
 
 
 SEVERITY_ORDER = {"low": 1, "medium": 2, "high": 3, "critical": 4}
@@ -45,12 +52,147 @@ ALLOWED_CATEGORIES = {
     "unknown",
 }
 ALLOWED_MISSING_FIELDS = {"location", "severity", "medical_needed"}
+FIELD_CONFIDENCE_KEYS = (
+    "category",
+    "severity",
+    "medical_needed",
+    "village",
+    "district",
+    "regency",
+    "description",
+    "is_local_farmer",
+    "needs",
+)
+
+# Stable labels keep AI output, deterministic fallback, and dashboard aggregates
+# from splitting equivalent needs such as "sembako" and "makanan".
+NEED_CATEGORIES = (
+    "evakuasi",
+    "bantuan medis",
+    "pangan",
+    "air bersih & sanitasi",
+    "tempat pengungsian",
+    "sandang & perlengkapan dasar",
+    "pompa & drainase",
+    "benih/bibit",
+    "pupuk & pestisida",
+    "alat/mesin pertanian",
+    "pakan & kesehatan ternak",
+    "perbaikan lahan/irigasi",
+)
+NEED_KEYWORDS = {
+    "evakuasi": ("evakuasi", "terjebak", "penyelamatan"),
+    "bantuan medis": (
+        "bantuan medis",
+        "medis",
+        "dokter",
+        "puskesmas",
+        "obat-obatan",
+        "luka",
+        "sakit",
+    ),
+    "pangan": ("pangan", "makanan", "sembako", "beras", "dapur umum"),
+    "air bersih & sanitasi": (
+        "air bersih",
+        "air minum",
+        "sanitasi",
+        "toilet",
+        "mck",
+    ),
+    "tempat pengungsian": (
+        "tempat pengungsian",
+        "pengungsian",
+        "hunian sementara",
+        "tenda",
+        "shelter",
+    ),
+    "sandang & perlengkapan dasar": (
+        "sandang",
+        "pakaian",
+        "selimut",
+        "kasur",
+        "hygiene kit",
+        "family kit",
+        "perlengkapan bayi",
+    ),
+    "pompa & drainase": ("pompa", "drainase", "penyedot air"),
+    "benih/bibit": ("benih", "bibit"),
+    "pupuk & pestisida": ("pupuk", "pestisida", "insektisida"),
+    "alat/mesin pertanian": (
+        "alat pertanian",
+        "mesin pertanian",
+        "alsintan",
+        "traktor",
+        "combine harvester",
+        "mesin pengering",
+    ),
+    "pakan & kesehatan ternak": (
+        "pakan ternak",
+        "makanan ternak",
+        "obat ternak",
+        "dokter hewan",
+        "vaksin ternak",
+        "vitamin ternak",
+    ),
+    "perbaikan lahan/irigasi": (
+        "perbaikan lahan",
+        "rehabilitasi lahan",
+        "perbaikan irigasi",
+        "rehabilitasi irigasi",
+        "saluran irigasi",
+    ),
+}
+
+
+def normalize_needs(values: list[object]) -> list[str]:
+    """Map free-form need labels to stable Indonesian dashboard categories."""
+    normalized: list[str] = []
+    for raw_value in values:
+        value = re.sub(r"\s+", " ", str(raw_value).lower()).strip()
+        for category in NEED_CATEGORIES:
+            if category == value or any(
+                keyword in value for keyword in NEED_KEYWORDS[category]
+            ):
+                if category not in normalized:
+                    normalized.append(category)
+    return normalized
+
+
+def _extract_needs(text: str) -> list[str]:
+    needs = normalize_needs([text])
+    lower = text.lower()
+    if any(
+        phrase in lower
+        for phrase in (
+            "tidak perlu evakuasi",
+            "tidak butuh evakuasi",
+            "tidak membutuhkan evakuasi",
+            "tidak ada yang terjebak",
+        )
+    ):
+        needs = [need for need in needs if need != "evakuasi"]
+    if any(
+        phrase in lower
+        for phrase in (
+            "tidak perlu medis",
+            "tidak butuh medis",
+            "tidak membutuhkan medis",
+            "tidak ada yang luka",
+        )
+    ):
+        needs = [need for need in needs if need != "bantuan medis"]
+    if "makanan ternak" in lower and not any(
+        phrase in lower
+        for phrase in ("pangan", "sembako", "beras", "dapur umum", "makanan warga")
+    ):
+        needs = [need for need in needs if need != "pangan"]
+    return needs
 
 
 def _labelled_boolean(text: str, labels: list[str]) -> bool | None:
     label_pattern = "|".join(re.escape(label) for label in labels)
     match = re.search(
-        rf"(?:{label_pattern})\s*[:=-]\s*(ya|iya|benar|tidak|nggak|gak|bukan)",
+        rf"(?:{label_pattern})\s*[:=-]\s*(ya(?!\s*/)|iya|benar|tidak|nggak|gak|bukan)",
         text,
     )
     if not match:
@@ -67,7 +209,10 @@ def _extract_profile_facts(text: str) -> dict[str, object | None]:
     )
     reporter_name = name_match.group(1).strip() if name_match else None
 
-    is_farmer = _labelled_boolean(lower, ["status petani", "apakah petani"])
+    is_farmer = _labelled_boolean(
+        lower,
+        ["status petani", "apakah petani", "petani/penggarap di lokasi"],
+    )
     if is_farmer is None:
         if any(phrase in lower for phrase in ["bukan petani", "saya bukan petani"]):
             is_farmer = False
@@ -86,7 +231,13 @@ def _extract_profile_facts(text: str) -> dict[str, object | None]:
 
     is_local_farmer = _labelled_boolean(
         lower,
-        ["petani setempat", "petani lokal", "petani daerah ini", "warga setempat"],
+        [
+            "petani setempat",
+            "petani lokal",
+            "petani daerah ini",
+            "warga setempat",
+            "petani/penggarap di lokasi",
+        ],
     )
     if is_local_farmer is None:
         if any(
@@ -142,7 +293,8 @@ def _extract_profile_facts(text: str) -> dict[str, object | None]:
 def _extract_admin_location(text: str) -> dict[str, str | None]:
     def extract(label_pattern: str) -> str | None:
         match = re.search(
-            rf"(?:{label_pattern})(?:\s+lokasi)?(?:\s*[:=-]\s*|\s+)([^,;\n]{{2,100}})",
+            rf"(?:{label_pattern})(?:[ \t]+lokasi)?"
+            rf"(?:[ \t]*[:=-][ \t]*|[ \t]+)([^,;\n]{{2,100}})",
             text,
             flags=re.IGNORECASE,
         )
@@ -239,18 +391,31 @@ class MockClassifier:
         ):
             missing_fields.append("medical_needed")
 
-        needs: list[str] = []
-        need_keywords = {
-            "evakuasi": ["evakuasi", "terjebak"],
-            "bantuan medis": ["medis", "sakit", "luka", "dokter", "puskesmas"],
-            "pangan": ["makanan", "pangan", "beras"],
-            "air bersih": ["air bersih", "minum"],
-            "pompa": ["pompa"],
-            "benih pengganti": ["benih", "bibit"],
+        needs = _extract_needs(factual_text)
+
+        labelled_description = bool(
+            re.search(r"deskripsi(?:\s+dampak)?\s*[:=-]\s*\S", factual_text, re.I)
+        )
+        labelled_needs = bool(
+            re.search(r"bantuan\s+yang\s+dibutuhkan\s*[:=-]\s*\S", factual_text, re.I)
+        )
+        explicit_medical = "medical_needed" not in missing_fields
+        field_confidences = {
+            "category": 0.85 if category != "unknown" else 0.0,
+            "severity": 0.85 if "severity" not in missing_fields else 0.35,
+            "medical_needed": 0.9 if explicit_medical else 0.3,
+            "village": 0.98 if admin_location["village"] else 0.0,
+            "district": 0.98 if admin_location["district"] else 0.0,
+            "regency": 0.98 if admin_location["regency"] else 0.0,
+            "description": 0.98 if labelled_description else (0.75 if category != "unknown" else 0.0),
+            "is_local_farmer": 0.99 if profile["is_local_farmer"] is not None else 0.0,
+            "needs": 0.95 if labelled_needs and needs else (0.75 if needs else 0.0),
         }
-        for need, keywords in need_keywords.items():
-            if any(keyword in lower for keyword in keywords):
-                needs.append(need)
+        field_confidence_reasons = {
+            key: "Informasi belum disebutkan atau belum cukup jelas."
+            for key, value in field_confidences.items()
+            if value < 0.7
+        }
 
         summary = factual_text.strip()[:220] or "Foto kondisi lahan diterima."
         confidence = 0.82 if category != "unknown" else 0.45
@@ -271,6 +436,13 @@ class MockClassifier:
             is_local_farmer=profile["is_local_farmer"],
             home_location=profile["home_location"],
             available_for_follow_up=profile["available_for_follow_up"],
+            field_confidences=field_confidences,
+            field_confidence_reasons=field_confidence_reasons,
+            image_reason=(
+                "Fallback lokal tidak dapat memeriksa isi foto."
+                if image_url
+                else None
+            ),
         )
 
 
@@ -295,14 +467,64 @@ TRIAGE_JSON_SCHEMA = {
         },
         "needs": {
             "type": "array",
-            "items": {"type": "string"},
-            "maxItems": 6,
+            "items": {"type": "string", "enum": list(NEED_CATEGORIES)},
+            "maxItems": len(NEED_CATEGORIES),
+            "uniqueItems": True,
+            "description": (
+                "Jenis bantuan yang dinyatakan atau tersirat kuat dari fakta laporan; "
+                "gunakan hanya kategori baku yang tersedia."
+            ),
         },
         "summary": {
             "type": "string",
             "description": "Ringkasan Bahasa Indonesia, maksimal dua kalimat, tanpa mengarang fakta.",
         },
         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "field_confidences": {
+            "type": "object",
+            "properties": {
+                key: {"type": "number", "minimum": 0, "maximum": 1}
+                for key in FIELD_CONFIDENCE_KEYS
+            },
+            "required": list(FIELD_CONFIDENCE_KEYS),
+            "additionalProperties": False,
+        },
+        "uncertainties": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "field": {"type": "string", "enum": list(FIELD_CONFIDENCE_KEYS)},
+                    "reason": {"type": "string"},
+                },
+                "required": ["field", "reason"],
+                "additionalProperties": False,
+            },
+            "maxItems": len(FIELD_CONFIDENCE_KEYS),
+        },
+        "image_analysis": {
+            "anyOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "relevant": {"type": "boolean"},
+                        "matches_report": {"type": ["boolean", "null"]},
+                        "findings": {"type": "string"},
+                        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                        "reason": {"type": "string"},
+                    },
+                    "required": [
+                        "relevant",
+                        "matches_report",
+                        "findings",
+                        "confidence",
+                        "reason",
+                    ],
+                    "additionalProperties": False,
+                },
+                {"type": "null"},
+            ]
+        },
         "village": {"type": ["string", "null"]},
         "district": {"type": ["string", "null"]},
         "regency": {"type": ["string", "null"]},
@@ -320,6 +542,9 @@ TRIAGE_JSON_SCHEMA = {
         "needs",
         "summary",
         "confidence",
+        "field_confidences",
+        "uncertainties",
+        "image_analysis",
         "village",
         "district",
         "regency",
@@ -375,9 +600,26 @@ class OpenRouterClassifier:
                     "kembalikan keadaan kumulatif laporan berdasarkan riwayat dan jawaban terbaru. "
                     "Ekstrak desa/kelurahan ke village, kecamatan ke district, dan "
                     "kota/kabupaten ke regency; gunakan null jika tidak disebut jelas. "
+                    "Jangan menyalin satu nama ke beberapa tingkat administrasi. Lokasi seperti "
+                    "'Sayung, Demak' saja ambigu dan tidak cukup untuk mengisi village, district, "
+                    "dan regency sekaligus. "
+                    "Ekstrak kebutuhan dari field 'Bantuan yang dibutuhkan', deskripsi, "
+                    "dan foto ke needs. Gunakan hanya kategori baku dalam schema, gabungkan "
+                    "sinonim ke kategori yang sama, dan jangan mengarang kebutuhan. Jika "
+                    "pelapor menulis BELUM TAHU dan tidak ada bukti lain, gunakan array kosong. "
+                    "Beri confidence 0 sampai 1 untuk setiap field berdasarkan keyakinan ekstraksi, "
+                    "bukan keyakinan bahwa pelapor berkata benar. Masukkan alasan hanya untuk field "
+                    "yang meragukan ke uncertainties. Jika ada foto, nilai apakah foto relevan dengan "
+                    "bencana/kerusakan pertanian dan konsisten dengan laporan. Foto acak, screenshot, "
+                    "atau foto yang tidak menunjukkan dampak harus relevant=false. Jangan mengklaim "
+                    "keaslian, waktu, atau lokasi foto hanya dari tampilan visual. Jika teks belum cukup "
+                    "untuk dibandingkan, matches_report harus null. Jika tidak ada foto, image_analysis null. "
                     "Jika lokasi, tingkat keparahan, atau kebutuhan medis belum jelas, masukkan "
                     "field tersebut ke missing_fields. Ekstrak juga nama, status petani lokal, "
-                    "domisili, dan kesediaan dihubungi hanya bila dinyatakan jelas; selain itu null. Pesan: "
+                            "domisili, dan kesediaan dihubungi hanya bila dinyatakan jelas; selain itu null. "
+                            "Field form 'Petani/penggarap di lokasi' mengisi is_farmer dan "
+                            "is_local_farmer dengan nilai yang sama. Nilai placeholder 'YA/TIDAK' "
+                            "belum merupakan jawaban, jadi keduanya harus null. Pesan: "
                     f"{text.strip() or '[tidak ada teks; gunakan foto]'}"
                 ),
             }
@@ -424,6 +666,16 @@ class OpenRouterClassifier:
             if not raw_content:
                 raise ValueError("OpenRouter returned an empty classification")
             data = json.loads(raw_content)
+            image_analysis = data["image_analysis"]
+            field_confidences = {
+                key: max(0.0, min(1.0, float(data["field_confidences"][key])))
+                for key in FIELD_CONFIDENCE_KEYS
+            }
+            confidence_reasons = {
+                str(item["field"]): str(item["reason"]).strip()[:240]
+                for item in data["uncertainties"]
+                if item["field"] in FIELD_CONFIDENCE_KEYS
+            }
             return Classification(
                 category=data["category"],
                 severity=data["severity"],
@@ -431,7 +683,7 @@ class OpenRouterClassifier:
                 missing_fields=[
                     field for field in data["missing_fields"] if field in ALLOWED_MISSING_FIELDS
                 ],
-                needs=[str(need).strip()[:80] for need in data["needs"] if str(need).strip()],
+                needs=normalize_needs(data["needs"]),
                 summary=str(data["summary"]).strip()[:500],
                 confidence=max(0.0, min(1.0, float(data["confidence"]))),
                 source=f"openrouter:{response.model}",
@@ -443,6 +695,27 @@ class OpenRouterClassifier:
                 is_local_farmer=data["is_local_farmer"],
                 home_location=(str(data["home_location"]).strip()[:300] if data["home_location"] else None),
                 available_for_follow_up=data["available_for_follow_up"],
+                field_confidences=field_confidences,
+                field_confidence_reasons=confidence_reasons,
+                image_relevant=(image_analysis["relevant"] if image_analysis else None),
+                image_matches_report=(
+                    image_analysis["matches_report"] if image_analysis else None
+                ),
+                image_findings=(
+                    str(image_analysis["findings"]).strip()[:500]
+                    if image_analysis
+                    else None
+                ),
+                image_confidence=(
+                    max(0.0, min(1.0, float(image_analysis["confidence"])))
+                    if image_analysis
+                    else 0.0
+                ),
+                image_reason=(
+                    str(image_analysis["reason"]).strip()[:300]
+                    if image_analysis
+                    else None
+                ),
             )
         except Exception:
             logger.exception("OpenRouter triage failed; using deterministic fallback")

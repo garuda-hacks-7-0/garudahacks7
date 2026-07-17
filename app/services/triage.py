@@ -16,6 +16,7 @@ from app.services.classifier import (
     Classifier,
     SEVERITY_ORDER,
     get_classifier,
+    normalize_needs,
 )
 from app.services.geocoder import MockGeocoder
 from app.services.resources import ResourceService, km_between
@@ -24,6 +25,7 @@ from app.services.weather import MockWeatherRisk
 
 EVIDENCE_TARGET = 1
 READINESS_THRESHOLD = 70
+FIELD_CONFIDENCE_THRESHOLD = 0.7
 GREETINGS = {"hi", "hai", "halo", "hello", "hey", "pagi", "siang", "sore", "malam"}
 START_COMMANDS = {
     "lapor",
@@ -42,6 +44,7 @@ FOLLOW_UP_ORDER = [
     "location_verification",
     "description",
     "is_local_farmer",
+    "needs",
 ]
 FOLLOW_UPS = {
     "evidence": "Silakan upload foto lokasi yang menunjukkan bukti terdampak.",
@@ -65,21 +68,52 @@ FOLLOW_UPS = {
         "Apakah Anda petani atau penggarap yang bertani di daerah terdampak tersebut? "
         "Balas YA atau TIDAK."
     ),
+    "needs": (
+        "Saya belum yakin bantuan yang paling dibutuhkan. Apakah kebutuhannya berupa "
+        "evakuasi, medis, pangan, air bersih, pengungsian, pompa, benih, alat pertanian, "
+        "atau lainnya? Jika belum tahu, balas BELUM TAHU."
+    ),
 }
 CONSENT_NOTICE = (
     "Nomor WhatsApp-mu tetap dirahasiakan."
 )
+REPORT_FORM_TEMPLATE = (
+    "*FORM LAPORAN PETANI*\n"
+    "Desa/Kelurahan: Sayung\n"
+    "Kecamatan: Sayung\n"
+    "Kota/Kabupaten: Demak\n"
+    "Deskripsi dampak: Banjir merendam sawah dan merusak tanaman padi sejak pagi.\n"
+    "Bantuan yang dibutuhkan: Pangan, air bersih, pompa\n"
+    "Petani/penggarap di lokasi: YA/TIDAK"
+)
+FORM_REQUIRED_MESSAGE = (
+    "Mohon gunakan form agar laporan bisa diproses dengan cepat. Copy-paste, "
+    "ganti contoh jawabannya, lalu kirim dalam satu pesan:\n\n"
+    f"{REPORT_FORM_TEMPLATE}\n\n"
+    "Jika memakai Share Location, hapus tiga baris lokasi manual lalu kirim "
+    "Share Location WhatsApp secara terpisah (bukan Live Location).\n\n"
+    "Jika mengetik manual, ketiga baris lokasi wajib diisi lengkap; 'Sayung, "
+    "Demak' saja belum cukup.\n\n"
+    "Foto bukti juga boleh dikirim terpisah.\n\n"
+    "Jenis bantuan boleh lebih dari satu. Tulis BELUM TAHU jika belum dapat "
+    "menentukannya.\n\n"
+    "Ketik BATAL untuk membatalkan laporan."
+)
+LOCATION_CHECK_MESSAGE = "Sebentar ya, aku cek dulu lokasi kamu… 📍"
 WELCOME_MESSAGE = (
     "Halo, terima kasih sudah menghubungi PetaNih! 🌾\n\n"
-    "Apakah Anda ingin melaporkan daerah terdampak bencana? Jika iya, silakan upload:\n"
-    "1. Foto lokasi dan bukti terdampak\n"
-    "2. Lokasi terdampak — pilih salah satu:\n"
-    "   • Share Location: tekan 📎 > Location > Send your current location "
-    "(bukan Live Location)\n"
-    "   • Atau ketik Desa/Kelurahan, Kecamatan, dan Kota/Kabupaten\n"
-    "3. Deskripsi dampak lokasi\n"
-    "   Contoh: banjir merendam sawah dan merusak tanaman padi sejak pagi.\n\n"
-    "Data boleh dikirim sekaligus atau satu per satu."
+    "Untuk membuat laporan, upload minimal satu foto daerah terdampak lalu kirim "
+    "data menggunakan form berikut dalam satu pesan.\n\n"
+    f"{REPORT_FORM_TEMPLATE}\n\n"
+    "Lokasi boleh diganti dengan Share Location: tekan 📎 > Location > "
+    "Send your current location (bukan Live Location), lalu hapus tiga baris "
+    "lokasi manual dari form.\n\n"
+    "Jika mengetik manual, Desa/Kelurahan, Kecamatan, dan Kota/Kabupaten wajib "
+    "diisi lengkap; 'Sayung, Demak' saja belum cukup.\n\n"
+    "Foto dan Share Location boleh dikirim terpisah, tetapi data teks wajib "
+    "menggunakan form.\n\n"
+    "Jenis bantuan boleh lebih dari satu. Tulis BELUM TAHU jika belum dapat "
+    "menentukannya."
 )
 CANCEL_FOOTER = "Ketik BATAL untuk membatalkan laporan."
 PRIVACY_CONSENT_VERSION = "2026-07-17-v1"
@@ -99,11 +133,12 @@ PRIVACY_CONSENT_ACCEPTED = (
 )
 READINESS_WEIGHTS = {
     "evidence": 25,
-    "village": 15,
-    "district": 15,
-    "regency": 15,
+    "village": 10,
+    "district": 10,
+    "regency": 10,
     "description": 20,
-    "is_local_farmer": 10,
+    "is_local_farmer": 15,
+    "needs": 10,
 }
 CRITIQUE_MESSAGES = {
     "evidence": "foto bukti terdampak belum diunggah",
@@ -113,6 +148,7 @@ CRITIQUE_MESSAGES = {
     "location_verification": "lokasi manual belum berhasil diverifikasi di peta",
     "description": "deskripsi kejadian dan dampak belum cukup spesifik",
     "is_local_farmer": "status pelapor sebagai petani/penggarap daerah tersebut belum dikonfirmasi",
+    "needs": "jenis bantuan yang dibutuhkan belum cukup jelas",
 }
 
 
@@ -124,12 +160,14 @@ class TriageService:
         weather: MockWeatherRisk | None = None,
         resources: ResourceService | None = None,
         privacy_consent_required: bool = True,
+        form_required: bool = False,
     ) -> None:
         self.classifier = classifier or get_classifier()
         self.geocoder = geocoder or MockGeocoder()
         self.weather = weather or MockWeatherRisk()
         self.resources = resources or ResourceService()
         self.privacy_consent_required = privacy_consent_required
+        self.form_required = form_required
 
     def ingest(
         self,
@@ -171,6 +209,7 @@ class TriageService:
             .filter(ConversationState.sender == sender)
             .one_or_none()
         )
+        active_report = None
         if state is not None:
             active_report = (
                 db.query(Report).filter(Report.id == state.report_id).one_or_none()
@@ -181,9 +220,83 @@ class TriageService:
                     state.pending_fields = current_pending
                     db.add(state)
                     db.commit()
+
+        if self.form_required:
+            has_attachment = bool(evidence_urls) or (
+                lat is not None and lon is not None
+            )
+            if self._is_cancel_command(text):
+                if state is not None:
+                    if active_report is not None:
+                        db.delete(active_report)
+                    db.delete(state)
+                    db.commit()
+                    return (
+                        active_report,
+                        "Oke, draft dibatalkan. Ketik *LAPOR* kalau mau mulai lagi.",
+                    )
+                return None, "Belum ada draft aktif. Ketik *LAPOR* untuk mulai."
+            if (
+                not has_attachment
+                and (self._is_greeting(text) or self._is_start_command(text))
+            ):
+                if active_report is not None:
+                    return (
+                        active_report,
+                        f"Halo 👋 Draft *TT-{active_report.id:04d}* masih ada.\n\n"
+                        f"{FORM_REQUIRED_MESSAGE}",
+                    )
+                return None, WELCOME_MESSAGE
+            active_form_follow_up = bool(
+                state is not None
+                and active_report is not None
+                and self.is_report_form(active_report.text or "")
+            )
+            if (
+                text.strip()
+                and not self.is_report_form(text)
+                and not active_form_follow_up
+            ):
+                if not has_attachment:
+                    return active_report, FORM_REQUIRED_MESSAGE
+                blank_classification = self._blank_form_classification()
+                if state is not None:
+                    attached_report, attached_reply = self._continue_conversation(
+                        db,
+                        state,
+                        text="",
+                        evidence_urls=evidence_urls,
+                        lat=lat,
+                        lon=lon,
+                        location_label=location_label,
+                        classification=blank_classification,
+                    )
+                else:
+                    attached_report, attached_reply = self._start_report(
+                        db,
+                        sender=sender,
+                        text="",
+                        evidence_urls=evidence_urls,
+                        lat=lat,
+                        lon=lon,
+                        location_label=location_label,
+                        classification=blank_classification,
+                    )
+                if attached_report.readiness_score >= READINESS_THRESHOLD:
+                    return attached_report, attached_reply
+                return attached_report, FORM_REQUIRED_MESSAGE
+
+        classification_image = evidence_urls[0] if evidence_urls else None
+        if (
+            classification_image is None
+            and active_report is not None
+            and active_report.image_url
+            and self.is_report_form(text)
+        ):
+            classification_image = active_report.image_url
         classification = self.classifier.classify(
             self._classification_context(db, state, text),
-            evidence_urls[0] if evidence_urls else None,
+            classification_image,
         )
         if state is not None and self._is_greeting(text) and not evidence_urls:
             active_report = (
@@ -327,6 +440,39 @@ class TriageService:
             return "cancel"
         return None
 
+    def has_current_privacy_consent(self, db: Session, sender: str) -> bool:
+        profile = (
+            db.query(FarmerProfile)
+            .filter(FarmerProfile.sender == sender)
+            .one_or_none()
+        )
+        return bool(
+            profile
+            and profile.privacy_consent_at
+            and profile.privacy_consent_version == PRIVACY_CONSENT_VERSION
+        )
+
+    def is_report_form(self, text: str) -> bool:
+        lower = text.lower()
+        return bool(
+            re.search(r"\bform\s+laporan(?:\s+petani)?\b", lower)
+            and re.search(r"\bdeskripsi\s+dampak\s*:", lower)
+            and re.search(r"\bbantuan\s+yang\s+dibutuhkan\s*:", lower)
+            and re.search(r"\bpetani(?:/penggarap)?\s+di\s+lokasi\s*:", lower)
+        )
+
+    def _blank_form_classification(self) -> Classification:
+        return Classification(
+            category="unknown",
+            severity="unknown",
+            medical_needed=False,
+            missing_fields=["severity", "medical_needed"],
+            needs=[],
+            summary="",
+            confidence=0.0,
+            source="form_attachment",
+        )
+
     def _start_report(
         self,
         db: Session,
@@ -375,7 +521,12 @@ class TriageService:
                 if classification.available_for_follow_up is not None
                 else profile.available_for_follow_up
             ),
-            needs=classification.needs,
+            needs=normalize_needs(classification.needs),
+            field_confidences=dict(classification.field_confidences),
+            field_confidence_reasons=dict(classification.field_confidence_reasons),
+            field_verification={},
+            evidence_assessments=[],
+            follow_up_counts={},
             ai_summary=classification.summary,
             ai_confidence=classification.confidence,
             triage_source=classification.source,
@@ -392,6 +543,9 @@ class TriageService:
         if report.location_shared and geo is not None:
             report.location_label = geo.label
         self._update_location_verification(report, geo_found=geo is not None)
+        if primary_image:
+            self._apply_image_assessment(report, primary_image, classification)
+        self._refresh_field_metadata(report)
         db.add_all([profile, report])
         if geo:
             report.region = self._get_or_create_region(
@@ -482,13 +636,41 @@ class TriageService:
             report.evidence_unavailable = False
         if len(report.evidence_urls) > previous_evidence_count:
             recognized_fields.add("evidence")
+        assessed_image = evidence_urls[0] if evidence_urls else report.image_url
+        if assessed_image and (
+            classification.image_relevant is not None
+            or classification.image_reason is not None
+        ):
+            self._apply_image_assessment(report, assessed_image, classification)
 
         description = self._extract_description_from_reply(
             text, expected=current_field == "description"
         )
         if description:
             report.incident_description = description
+            if current_field == "description":
+                self._set_field_confidence(report, "description", 0.95, None)
+            elif "description" not in (report.field_confidences or {}):
+                self._set_field_confidence(report, "description", 0.9, None)
             recognized_fields.add("description")
+
+        if current_field == "needs":
+            follow_up_counts = dict(report.follow_up_counts or {})
+            follow_up_counts["needs"] = follow_up_counts.get("needs", 0) + 1
+            report.follow_up_counts = follow_up_counts
+            direct_needs = normalize_needs([text])
+            if direct_needs:
+                report.needs = direct_needs
+                self._set_field_confidence(report, "needs", 0.95, None)
+            else:
+                report.needs = []
+                self._set_field_confidence(
+                    report,
+                    "needs",
+                    0.0,
+                    "Pelapor belum mengetahui bantuan yang paling dibutuhkan.",
+                )
+            recognized_fields.add("needs")
 
         for field in ("village", "district", "regency"):
             value = getattr(classification, field)
@@ -496,6 +678,10 @@ class TriageService:
                 value = self._extract_admin_reply(text)
             if value:
                 setattr(report, field, value.strip()[:160])
+                if current_field == field:
+                    self._set_field_confidence(report, field, 0.98, None)
+                elif field not in (report.field_confidences or {}):
+                    self._set_field_confidence(report, field, 0.9, None)
                 recognized_fields.add(field)
         self._sync_location_label(report)
 
@@ -599,12 +785,14 @@ class TriageService:
         if profile_updates["is_local_farmer"] is not None:
             report.reporter_is_local = profile_updates["is_local_farmer"]
             profile.is_local_farmer = profile_updates["is_local_farmer"]
+            self._set_field_confidence(report, "is_local_farmer", 0.99, None)
             recognized_fields.add("is_local_farmer")
         if profile_updates["follow_up_available"] is not None:
             report.follow_up_available = profile_updates["follow_up_available"]
             profile.available_for_follow_up = profile_updates["follow_up_available"]
             recognized_fields.add("follow_up_available")
 
+        self._refresh_field_metadata(report)
         self._sync_profile_from_report(profile, report)
         self._refresh_readiness(report)
         remaining_fields = self._missing_fields(report)
@@ -639,11 +827,24 @@ class TriageService:
         if classification.category != "unknown" or report.category == "unknown":
             report.category = classification.category
         if classification.needs:
-            report.needs = classification.needs
+            report.needs = normalize_needs(classification.needs)
         if classification.summary:
             report.ai_summary = classification.summary
         report.ai_confidence = classification.confidence
         report.triage_source = classification.source
+        report.field_confidences = {
+            **(report.field_confidences or {}),
+            **classification.field_confidences,
+        }
+        confidence_reasons = dict(report.field_confidence_reasons or {})
+        for field, confidence in classification.field_confidences.items():
+            if (
+                confidence >= FIELD_CONFIDENCE_THRESHOLD
+                and field not in classification.field_confidence_reasons
+            ):
+                confidence_reasons.pop(field, None)
+        confidence_reasons.update(classification.field_confidence_reasons)
+        report.field_confidence_reasons = confidence_reasons
         if classification.village:
             report.village = classification.village
         if classification.district:
@@ -726,32 +927,241 @@ class TriageService:
             facts.append(f"wilayah {profile.home_location}")
         return "; ".join(facts)
 
+    def _set_field_confidence(
+        self,
+        report: Report,
+        field: str,
+        confidence: float,
+        reason: str | None,
+    ) -> None:
+        confidences = dict(report.field_confidences or {})
+        confidences[field] = round(max(0.0, min(1.0, confidence)), 3)
+        report.field_confidences = confidences
+        reasons = dict(report.field_confidence_reasons or {})
+        if reason:
+            reasons[field] = reason[:240]
+        else:
+            reasons.pop(field, None)
+        report.field_confidence_reasons = reasons
+
+    def _apply_image_assessment(
+        self,
+        report: Report,
+        image_url: str,
+        classification: Classification,
+    ) -> None:
+        if classification.image_relevant is False:
+            status = "rejected_irrelevant"
+        elif classification.image_matches_report is False:
+            status = "rejected_mismatch"
+        elif (
+            classification.image_relevant is True
+            and classification.image_matches_report is True
+            and classification.image_confidence >= FIELD_CONFIDENCE_THRESHOLD
+        ):
+            status = "verified_visual"
+        elif (
+            classification.image_relevant is True
+            and classification.image_matches_report is None
+        ):
+            status = "needs_comparison"
+        else:
+            status = "unverified"
+
+        assessment = {
+            "url": image_url,
+            "status": status,
+            "relevant": classification.image_relevant,
+            "matches_report": classification.image_matches_report,
+            "confidence": round(classification.image_confidence, 3),
+            "findings": classification.image_findings or "",
+            "reason": classification.image_reason or "",
+        }
+        assessments = [
+            item
+            for item in (report.evidence_assessments or [])
+            if item.get("url") != image_url
+        ]
+        assessments.append(assessment)
+        report.evidence_assessments = assessments
+
+    def _verified_evidence_count(self, report: Report) -> int:
+        return sum(
+            1
+            for item in (report.evidence_assessments or [])
+            if item.get("status") == "verified_visual"
+        )
+
+    def _evidence_confidence(self, report: Report) -> float:
+        verified = [
+            float(item.get("confidence") or 0.0)
+            for item in (report.evidence_assessments or [])
+            if item.get("status") == "verified_visual"
+        ]
+        if verified:
+            return max(verified)
+        if not self.form_required and report.evidence_urls:
+            return 1.0
+        return 0.0
+
+    def _field_confidence(self, report: Report, field: str) -> float:
+        value = (report.field_confidences or {}).get(field)
+        if value is not None:
+            return max(0.0, min(1.0, float(value)))
+        legacy_present = {
+            "village": bool(report.village.strip()),
+            "district": bool(report.district.strip()),
+            "regency": bool(report.regency.strip()),
+            "description": bool(report.incident_description.strip()),
+            "is_local_farmer": report.reporter_is_local is not None,
+            "needs": bool(report.needs),
+        }.get(field, False)
+        return 1.0 if legacy_present else 0.0
+
+    def _refresh_field_metadata(self, report: Report) -> None:
+        verification = dict(report.field_verification or {})
+        confidences = dict(report.field_confidences or {})
+        reasons = dict(report.field_confidence_reasons or {})
+
+        for field in ("category", "severity", "medical_needed"):
+            if confidences.get(field, 0) > 0:
+                verification[field] = "ai_extracted"
+
+        if self._has_shared_location(report):
+            verification["location"] = "verified_shared"
+            confidences["location"] = 1.0
+            for field in ("village", "district", "regency"):
+                verification[field] = "replaced_by_shared_location"
+        elif report.location_verification_status == "verified_geocoded":
+            verification["location"] = "verified_geocoded"
+            location_confidences: list[float] = []
+            for field in ("village", "district", "regency"):
+                if getattr(report, field).strip():
+                    confidences[field] = max(float(confidences.get(field, 0)), 0.95)
+                    verification[field] = "verified_geocoded"
+                    location_confidences.append(confidences[field])
+            confidences["location"] = min(location_confidences or [0.0])
+        else:
+            verification["location"] = report.location_verification_status
+            location_confidences = [
+                float(confidences.get(field, 0.0))
+                for field in ("village", "district", "regency")
+                if getattr(report, field).strip()
+            ]
+            confidences["location"] = min(location_confidences or [0.0])
+
+        if report.incident_description.strip():
+            verification["description"] = (
+                "visually_consistent"
+                if self._verified_evidence_count(report)
+                else "self_reported"
+            )
+        if report.reporter_is_local is not None:
+            verification["is_local_farmer"] = "self_reported"
+        if report.needs:
+            verification["needs"] = "ai_extracted"
+        elif (report.follow_up_counts or {}).get("needs", 0) >= 1:
+            verification["needs"] = "unknown_after_follow_up"
+        else:
+            verification["needs"] = "missing_or_uncertain"
+
+        evidence_statuses = [
+            str(item.get("status")) for item in (report.evidence_assessments or [])
+        ]
+        if "verified_visual" in evidence_statuses:
+            verification["evidence"] = "verified_visual"
+            reasons.pop("evidence", None)
+        elif any(status.startswith("rejected_") for status in evidence_statuses):
+            verification["evidence"] = "rejected"
+            rejected = next(
+                (
+                    item
+                    for item in reversed(report.evidence_assessments or [])
+                    if str(item.get("status", "")).startswith("rejected_")
+                ),
+                {},
+            )
+            reasons["evidence"] = str(
+                rejected.get("reason") or "Foto tidak lolos pemeriksaan visual."
+            )[:240]
+        elif report.evidence_urls:
+            verification["evidence"] = "unverified"
+            unverified = (report.evidence_assessments or [{}])[-1]
+            reasons["evidence"] = str(
+                unverified.get("reason")
+                or "Foto belum berhasil diperiksa oleh model vision."
+            )[:240]
+        else:
+            verification["evidence"] = "missing"
+            reasons["evidence"] = "Foto bukti belum diunggah."
+        confidences["evidence"] = self._evidence_confidence(report)
+
+        report.field_confidences = {
+            key: round(max(0.0, min(1.0, float(value))), 3)
+            for key, value in confidences.items()
+        }
+        report.field_verification = verification
+        report.field_confidence_reasons = reasons
+
     def _refresh_readiness(self, report: Report) -> None:
         missing_fields = self._missing_fields(report)
-        score = 0
-        evidence_count = min(len(report.evidence_urls or []), EVIDENCE_TARGET)
-        score += round(READINESS_WEIGHTS["evidence"] * evidence_count / EVIDENCE_TARGET)
-        if self._has_shared_location(report):
-            score += (
-                READINESS_WEIGHTS["village"]
-                + READINESS_WEIGHTS["district"]
-                + READINESS_WEIGHTS["regency"]
-            )
+        if not self.form_required:
+            score = min(len(report.evidence_urls or []), EVIDENCE_TARGET) * 25
+            if self._has_shared_location(report):
+                score += 45
+            else:
+                score += 15 if report.village.strip() else 0
+                score += 15 if report.district.strip() else 0
+                score += 15 if report.regency.strip() else 0
+            score += 20 if report.incident_description.strip() else 0
+            score += 10 if report.reporter_is_local is not None else 0
         else:
-            if report.village.strip():
-                score += READINESS_WEIGHTS["village"]
-            if report.district.strip():
-                score += READINESS_WEIGHTS["district"]
-            if report.regency.strip():
-                score += READINESS_WEIGHTS["regency"]
-        if report.incident_description.strip():
-            score += READINESS_WEIGHTS["description"]
-        if report.reporter_is_local is not None:
-            score += READINESS_WEIGHTS["is_local_farmer"]
+            score = round(
+                READINESS_WEIGHTS["evidence"] * self._evidence_confidence(report)
+            )
+            if self._has_shared_location(report):
+                score += round(
+                    (
+                        READINESS_WEIGHTS["village"]
+                        + READINESS_WEIGHTS["district"]
+                        + READINESS_WEIGHTS["regency"]
+                    )
+                    * self._field_confidence(report, "location")
+                )
+            else:
+                for field in ("village", "district", "regency"):
+                    if getattr(report, field).strip():
+                        score += round(
+                            READINESS_WEIGHTS[field]
+                            * self._field_confidence(report, field)
+                        )
+            if report.incident_description.strip():
+                score += round(
+                    READINESS_WEIGHTS["description"]
+                    * self._field_confidence(report, "description")
+                )
+            if report.reporter_is_local is not None:
+                score += round(
+                    READINESS_WEIGHTS["is_local_farmer"]
+                    * self._field_confidence(report, "is_local_farmer")
+                )
+            if report.needs:
+                score += round(
+                    READINESS_WEIGHTS["needs"]
+                    * self._field_confidence(report, "needs")
+                )
+
+            maximum_score = sum(READINESS_WEIGHTS.values())
+            if (
+                not report.needs
+                and (report.follow_up_counts or {}).get("needs", 0) >= 1
+            ):
+                maximum_score -= READINESS_WEIGHTS["needs"]
+            score = round(score * 100 / maximum_score) if maximum_score else 0
 
         if missing_fields:
             score = min(score, READINESS_THRESHOLD - 1)
-        report.readiness_score = score
+        report.readiness_score = min(100, score)
         report.readiness_critique = [
             self._critique_for(field, report) for field in missing_fields
         ]
@@ -768,18 +1178,48 @@ class TriageService:
             or report.category == "unknown"
             or score < READINESS_THRESHOLD
             or report.reporter_is_local is False
+            or (
+                self.form_required
+                and self._verified_evidence_count(report) < EVIDENCE_TARGET
+            )
         )
 
     def _missing_fields(self, report: Report) -> list[str]:
         missing: list[str] = []
-        if len(report.evidence_urls or []) < EVIDENCE_TARGET:
+        evidence_count = (
+            self._verified_evidence_count(report)
+            if self.form_required
+            else len(report.evidence_urls or [])
+        )
+        if evidence_count < EVIDENCE_TARGET:
             missing.append("evidence")
         if not self._has_shared_location(report):
-            if not report.village.strip():
+            if (
+                not report.village.strip()
+                or (
+                    self.form_required
+                    and self._field_confidence(report, "village")
+                    < FIELD_CONFIDENCE_THRESHOLD
+                )
+            ):
                 missing.append("village")
-            if not report.district.strip():
+            if (
+                not report.district.strip()
+                or (
+                    self.form_required
+                    and self._field_confidence(report, "district")
+                    < FIELD_CONFIDENCE_THRESHOLD
+                )
+            ):
                 missing.append("district")
-            if not report.regency.strip():
+            if (
+                not report.regency.strip()
+                or (
+                    self.form_required
+                    and self._field_confidence(report, "regency")
+                    < FIELD_CONFIDENCE_THRESHOLD
+                )
+            ):
                 missing.append("regency")
             admin_complete = all(
                 value.strip()
@@ -790,10 +1230,30 @@ class TriageService:
                 and report.location_verification_status != "verified_geocoded"
             ):
                 missing.append("location_verification")
-        if not report.incident_description.strip():
+        if (
+            not report.incident_description.strip()
+            or (
+                self.form_required
+                and self._field_confidence(report, "description")
+                < FIELD_CONFIDENCE_THRESHOLD
+            )
+        ):
             missing.append("description")
-        if report.reporter_is_local is None:
+        if (
+            report.reporter_is_local is None
+            or (
+                self.form_required
+                and self._field_confidence(report, "is_local_farmer")
+                < FIELD_CONFIDENCE_THRESHOLD
+            )
+        ):
             missing.append("is_local_farmer")
+        needs_follow_ups = (report.follow_up_counts or {}).get("needs", 0)
+        if self.form_required and needs_follow_ups < 1 and (
+            not report.needs
+            or self._field_confidence(report, "needs") < FIELD_CONFIDENCE_THRESHOLD
+        ):
+            missing.append("needs")
         return [field for field in FOLLOW_UP_ORDER if field in missing]
 
     def _has_shared_location(self, report: Report) -> bool:
@@ -821,11 +1281,33 @@ class TriageService:
         report.location_verification_status = "missing"
 
     def _critique_for(self, field: str, report: Report) -> str:
+        if field == "evidence" and not report.evidence_urls:
+            return CRITIQUE_MESSAGES[field]
+        if field == "evidence":
+            statuses = {
+                str(item.get("status")) for item in (report.evidence_assessments or [])
+            }
+            if "rejected_irrelevant" in statuses:
+                return "foto belum menunjukkan dampak bencana atau kerusakan pertanian"
+            if "rejected_mismatch" in statuses:
+                return "isi foto tidak konsisten dengan deskripsi laporan"
+            return "foto belum berhasil diverifikasi oleh AI vision"
+        reason = (report.field_confidence_reasons or {}).get(field)
+        if reason and self._field_confidence(report, field) < FIELD_CONFIDENCE_THRESHOLD:
+            return reason
         return CRITIQUE_MESSAGES[field]
 
     def _readiness_message(self, report: Report) -> str:
         if report.readiness_score >= READINESS_THRESHOLD:
             return "✅ Informasinya cukup. Laporan siap ditindaklanjuti."
+        if self.form_required:
+            if not self.is_report_form(report.text or ""):
+                return FORM_REQUIRED_MESSAGE
+            reason = report.readiness_critique[0]
+            return (
+                f"Aku belum yakin pada bagian ini: {reason}.\n\n"
+                f"{report.follow_up_question}\n\n{CANCEL_FOOTER}"
+            )
         current_reason = report.readiness_critique[0]
         return (
             f"Masih kurang: {current_reason}.\n"
@@ -842,18 +1324,29 @@ class TriageService:
     def _is_start_command(self, text: str) -> bool:
         return self._normalized_command(text) in START_COMMANDS
 
+    def _is_cancel_command(self, text: str) -> bool:
+        return self._normalized_command(text) in {
+            "batal",
+            "cancel",
+            "abort",
+            "reset",
+        }
+
     def _extract_description(
         self, text: str, classification: Classification, *, expected: bool
     ) -> str | None:
         labelled = re.search(
-            r"deskripsi\s*[:=-]\s*([^\n]+)", text, flags=re.IGNORECASE
+            r"deskripsi(?:[ \t]+dampak)?[ \t]*[:=-][ \t]*([^\n]+)",
+            text,
+            flags=re.IGNORECASE,
         )
         if labelled:
             return labelled.group(1).strip()[:1000]
         metadata_label = re.compile(
             r"^(?:desa(?:/kelurahan)?|kelurahan|kecamatan|kota(?:/kabupaten)?|"
             r"kabupaten|kab\.?|lokasi|keparahan|medis|status petani|petani setempat|"
-            r"bisa dihubungi)\s*[:=-]",
+            r"bisa dihubungi|bantuan yang dibutuhkan|petani/penggarap di lokasi)\s*[:=-]|"
+            r"^form laporan(?: petani)?$",
             flags=re.IGNORECASE,
         )
         cleaned = "\n".join(

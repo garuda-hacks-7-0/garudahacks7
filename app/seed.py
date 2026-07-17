@@ -110,7 +110,11 @@ def _seed_reports(db: Session) -> None:
     if db.query(Report).count() >= len(DEMO_REPORTS):
         return
     classifier = MockClassifier()
-    triage = TriageService(classifier=classifier, privacy_consent_required=False)
+    triage = TriageService(
+        classifier=classifier,
+        privacy_consent_required=False,
+        form_required=False,
+    )
     existing_senders = {sender for (sender,) in db.query(Report.sender).all()}
     regions = {region.name: region for region in db.query(Region).all()}
     touched_regions: set[str] = set()

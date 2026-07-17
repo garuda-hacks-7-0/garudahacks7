@@ -108,6 +108,13 @@ class Report(Base):
     reporter_is_local: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     follow_up_available: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     needs: Mapped[list[str]] = mapped_column(JSON, default=list)
+    field_confidences: Mapped[dict[str, float]] = mapped_column(JSON, default=dict)
+    field_confidence_reasons: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
+    field_verification: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
+    evidence_assessments: Mapped[list[dict[str, object]]] = mapped_column(
+        JSON, default=list
+    )
+    follow_up_counts: Mapped[dict[str, int]] = mapped_column(JSON, default=dict)
     ai_summary: Mapped[str] = mapped_column(Text, default="")
     ai_confidence: Mapped[float] = mapped_column(Float, default=0.0)
     triage_source: Mapped[str] = mapped_column(String(120), default="heuristic")

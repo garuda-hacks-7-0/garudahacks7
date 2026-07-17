@@ -45,6 +45,11 @@ def _upgrade_demo_sqlite_schema() -> None:
     existing = {column["name"] for column in inspector.get_columns("reports")}
     additions = {
         "needs": "JSON NOT NULL DEFAULT '[]'",
+        "field_confidences": "JSON NOT NULL DEFAULT '{}'",
+        "field_confidence_reasons": "JSON NOT NULL DEFAULT '{}'",
+        "field_verification": "JSON NOT NULL DEFAULT '{}'",
+        "evidence_assessments": "JSON NOT NULL DEFAULT '[]'",
+        "follow_up_counts": "JSON NOT NULL DEFAULT '{}'",
         "incident_description": "TEXT NOT NULL DEFAULT ''",
         "evidence_urls": "JSON NOT NULL DEFAULT '[]'",
         "evidence_unavailable": "BOOLEAN NOT NULL DEFAULT 0",

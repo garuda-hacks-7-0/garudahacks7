@@ -1,4 +1,5 @@
 import logging
+import re
 from threading import Lock
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form
@@ -11,14 +12,18 @@ from app.models import Report
 from app.schemas import IncomingReport, WebhookResponse
 from app.services.notifications import NotificationService
 from app.services.triage import (
+    LOCATION_CHECK_MESSAGE,
     PRIVACY_CONSENT_DECLINED,
     PRIVACY_CONSENT_PROMPT,
     TriageService,
 )
 
 router = APIRouter()
-triage = TriageService()
-demo_triage = TriageService(privacy_consent_required=False)
+triage = TriageService(form_required=True)
+demo_triage = TriageService(
+    privacy_consent_required=False,
+    form_required=False,
+)
 notifications = NotificationService()
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -53,6 +58,21 @@ def _lock_for_sender(sender: str) -> Lock:
         return _sender_locks.setdefault(sender, Lock())
 
 
+def _should_send_location_update(
+    body: str, latitude: float | None, longitude: float | None
+) -> bool:
+    if latitude is not None and longitude is not None:
+        return True
+    lower = body.lower()
+    return bool(
+        re.search(r"\bform\s+laporan(?:\s+petani)?\b", lower)
+        and any(
+            label in lower
+            for label in ["desa/kelurahan:", "kecamatan:", "kota/kabupaten:"]
+        )
+    )
+
+
 def _process_whatsapp_message(
     sender: str,
     body: str,
@@ -66,6 +86,16 @@ def _process_whatsapp_message(
     with _lock_for_sender(sender):
         db = SessionLocal()
         try:
+            if (
+                _should_send_location_update(body, latitude, longitude)
+                and triage.has_current_privacy_consent(db, sender)
+            ):
+                notifications.send(
+                    db,
+                    recipient=sender,
+                    body=LOCATION_CHECK_MESSAGE,
+                    kind="processing_update",
+                )
             report, reply = triage.ingest(
                 db,
                 sender=sender,

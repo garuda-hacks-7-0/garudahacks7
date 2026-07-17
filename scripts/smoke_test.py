@@ -58,7 +58,12 @@ async def run_checks(client: httpx.AsyncClient) -> None:
             "/webhooks/whatsapp",
             data={
                 "From": "demo-smoke-webhook",
-                "Body": "banjir parah di Sayung Demak, ada warga luka perlu medis",
+                "Body": (
+                    "FORM LAPORAN PETANI\n"
+                    "Deskripsi dampak: Banjir parah, ada warga luka perlu medis.\n"
+                    "Bantuan yang dibutuhkan: Bantuan medis, pangan, dan pompa\n"
+                    "Petani/penggarap di lokasi: YA"
+                ),
                 "Latitude": "-6.9218",
                 "Longitude": "110.5157",
                 "Address": "Sayung, Demak",

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -22,12 +23,19 @@ from app.models import (
     Report,
 )
 from app.schemas import AlertCreateIn, ReportStatusUpdateIn
-from app.services.classifier import MockClassifier, OpenRouterClassifier
+from app.services.classifier import (
+    FIELD_CONFIDENCE_KEYS,
+    NEED_CATEGORIES,
+    MockClassifier,
+    OpenRouterClassifier,
+)
 from app.services.geocoder import GeoResult, MockGeocoder
 from app.services.notifications import NotificationService, WhatsAppNotifier
 from app.services.triage import (
     CONSENT_NOTICE,
     EVIDENCE_TARGET,
+    FORM_REQUIRED_MESSAGE,
+    LOCATION_CHECK_MESSAGE,
     PRIVACY_CONSENT_ACCEPTED,
     PRIVACY_CONSENT_DECLINED,
     PRIVACY_CONSENT_PROMPT,
@@ -82,9 +90,43 @@ class CountingClassifier(MockClassifier):
         return super().classify(text, image_url)
 
 
+class VisionCountingClassifier(CountingClassifier):
+    def classify(self, text, image_url=None):
+        result = super().classify(text, image_url)
+        if not image_url:
+            return result
+        return replace(
+            result,
+            image_relevant=True,
+            image_matches_report=True,
+            image_findings="Terlihat lahan pertanian terdampak banjir.",
+            image_confidence=0.95,
+            image_reason="Foto relevan dan konsisten dengan laporan.",
+        )
+
+
+class RejectingVisionClassifier(CountingClassifier):
+    def classify(self, text, image_url=None):
+        result = super().classify(text, image_url)
+        if not image_url:
+            return result
+        return replace(
+            result,
+            image_relevant=False,
+            image_matches_report=False,
+            image_findings="Foto tidak menunjukkan lahan atau dampak bencana.",
+            image_confidence=0.96,
+            image_reason="Isi foto tidak relevan dengan laporan pertanian.",
+        )
+
+
 def test_consent_gate_blocks_storage_and_ai_until_button_accepts(db):
     classifier = CountingClassifier()
-    service = TriageService(classifier=classifier, geocoder=StubGeocoder())
+    service = TriageService(
+        classifier=classifier,
+        geocoder=StubGeocoder(),
+        form_required=False,
+    )
 
     report, reply = service.ingest(
         db,
@@ -126,7 +168,11 @@ def test_consent_gate_blocks_storage_and_ai_until_button_accepts(db):
 
 def test_consent_cancel_button_discards_message_without_storage_or_ai(db):
     classifier = CountingClassifier()
-    service = TriageService(classifier=classifier, geocoder=StubGeocoder())
+    service = TriageService(
+        classifier=classifier,
+        geocoder=StubGeocoder(),
+        form_required=False,
+    )
 
     report, reply = service.ingest(
         db,
@@ -144,7 +190,11 @@ def test_consent_cancel_button_discards_message_without_storage_or_ai(db):
 
 
 def test_consent_text_fallback_is_recorded(db):
-    service = TriageService(classifier=CountingClassifier(), geocoder=StubGeocoder())
+    service = TriageService(
+        classifier=CountingClassifier(),
+        geocoder=StubGeocoder(),
+        form_required=False,
+    )
 
     _, reply = service.ingest(
         db,
@@ -155,6 +205,170 @@ def test_consent_text_fallback_is_recorded(db):
     assert reply == PRIVACY_CONSENT_ACCEPTED
     profile = db.query(FarmerProfile).one()
     assert profile.privacy_consent_method == "whatsapp_text"
+
+
+def test_required_form_rejects_one_by_one_answers_without_calling_ai(db):
+    classifier = VisionCountingClassifier()
+    service = TriageService(
+        classifier=classifier,
+        geocoder=StubGeocoder(),
+        privacy_consent_required=False,
+        form_required=True,
+    )
+
+    report, reply = service.ingest(db, sender="farmer-form", text="LAPOR")
+    assert report is None
+    assert "FORM LAPORAN PETANI" in reply
+    assert classifier.calls == []
+
+    report, reply = service.ingest(db, sender="farmer-form", text="Sayung")
+    assert report is None
+    assert reply == FORM_REQUIRED_MESSAGE
+    assert classifier.calls == []
+
+    report, reply = service.ingest(
+        db,
+        sender="farmer-form",
+        text="",
+        image_url="https://example.com/evidence.jpg",
+    )
+    assert report is not None
+    assert report.evidence_urls == ["https://example.com/evidence.jpg"]
+    assert "FORM LAPORAN PETANI" in reply
+    assert len(classifier.calls) == 1
+
+    same_report, reply = service.ingest(
+        db,
+        sender="farmer-form",
+        text="Sayung",
+    )
+    assert same_report.id == report.id
+    assert same_report.village == ""
+    assert reply == FORM_REQUIRED_MESSAGE
+    assert len(classifier.calls) == 1
+
+    completed, reply = service.ingest(
+        db,
+        sender="farmer-form",
+        text=(
+            "FORM LAPORAN PETANI\n"
+            "Desa/Kelurahan: Sayung\n"
+            "Kecamatan: Sayung\n"
+            "Kota/Kabupaten: Demak\n"
+            "Deskripsi dampak: Banjir merendam sawah dan merusak tanaman sejak pagi.\n"
+            "Bantuan yang dibutuhkan: makanan, air minum, pompa, bibit padi\n"
+            "Petani/penggarap di lokasi: YA"
+        ),
+    )
+    assert completed.id == report.id
+    assert completed.status == "complete"
+    assert completed.readiness_score >= 90
+    assert completed.needs == [
+        "pangan",
+        "air bersih & sanitasi",
+        "pompa & drainase",
+        "benih/bibit",
+    ]
+    assert "siap ditindaklanjuti" in reply
+    assert len(classifier.calls) == 2
+
+
+def test_production_form_requires_precise_manual_location(db):
+    service = TriageService(
+        classifier=VisionCountingClassifier(),
+        geocoder=StubGeocoder(),
+        privacy_consent_required=False,
+        form_required=True,
+    )
+
+    report, reply = service.ingest(
+        db,
+        sender="farmer-ambiguous-location",
+        text=(
+            "FORM LAPORAN PETANI\n"
+            "Desa/Kelurahan: Sayung, Demak\n"
+            "Deskripsi dampak: Banjir merendam sawah dan merusak tanaman.\n"
+            "Bantuan yang dibutuhkan: Pompa\n"
+            "Petani/penggarap di lokasi: YA"
+        ),
+        image_url="https://example.com/evidence.jpg",
+    )
+
+    assert report.village == "Sayung"
+    assert report.district == ""
+    assert report.regency == ""
+    assert report.status == "needs_follow_up"
+    assert "Kecamatan" in reply
+    assert "FORM LAPORAN PETANI" not in reply
+
+
+def test_unknown_needs_are_followed_up_only_once(db):
+    service = TriageService(
+        classifier=VisionCountingClassifier(),
+        geocoder=StubGeocoder(),
+        privacy_consent_required=False,
+        form_required=True,
+    )
+    report, reply = service.ingest(
+        db,
+        sender="farmer-unknown-needs",
+        text=(
+            "FORM LAPORAN PETANI\n"
+            "Desa/Kelurahan: Sayung\n"
+            "Kecamatan: Sayung\n"
+            "Kota/Kabupaten: Demak\n"
+            "Deskripsi dampak: Banjir merendam sawah dan merusak tanaman.\n"
+            "Bantuan yang dibutuhkan: BELUM TAHU\n"
+            "Petani/penggarap di lokasi: YA"
+        ),
+        image_url="https://example.com/evidence.jpg",
+    )
+
+    assert report.status == "needs_follow_up"
+    assert "bantuan yang paling dibutuhkan" in reply
+    assert report.follow_up_counts == {}
+
+    completed, reply = service.ingest(
+        db,
+        sender="farmer-unknown-needs",
+        text="BELUM TAHU",
+    )
+
+    assert completed.status == "complete"
+    assert completed.needs == []
+    assert completed.follow_up_counts["needs"] == 1
+    assert completed.field_verification["needs"] == "unknown_after_follow_up"
+    assert "siap ditindaklanjuti" in reply
+    assert db.query(ConversationState).filter_by(sender="farmer-unknown-needs").count() == 0
+
+
+def test_irrelevant_photo_does_not_count_as_verified_evidence(db):
+    service = TriageService(
+        classifier=RejectingVisionClassifier(),
+        geocoder=StubGeocoder(),
+        privacy_consent_required=False,
+        form_required=True,
+    )
+
+    report, reply = service.ingest(
+        db,
+        sender="farmer-random-photo",
+        text=(
+            "FORM LAPORAN PETANI\n"
+            "Desa/Kelurahan: Sayung\n"
+            "Kecamatan: Sayung\n"
+            "Kota/Kabupaten: Demak\n"
+            "Deskripsi dampak: Banjir merendam sawah dan merusak tanaman.\n"
+            "Bantuan yang dibutuhkan: Pompa\n"
+            "Petani/penggarap di lokasi: YA"
+        ),
+        image_url="https://example.com/random.jpg",
+    )
+
+    assert report.status == "needs_follow_up"
+    assert report.field_verification["evidence"] == "rejected"
+    assert report.evidence_assessments[0]["status"] == "rejected_irrelevant"
+    assert "belum menunjukkan dampak" in reply
 
 
 def test_every_inbound_message_is_forwarded_to_classifier(db):
@@ -206,12 +420,13 @@ def test_greeting_is_friendly_and_does_not_create_a_report(db):
 
     assert report is None
     assert "terima kasih sudah menghubungi PetaNih! 🌾" in reply
-    assert "1. Foto lokasi dan bukti terdampak" in reply
-    assert "2. Lokasi terdampak — pilih salah satu" in reply
+    assert "upload minimal satu foto" in reply
+    assert "FORM LAPORAN PETANI" in reply
     assert "Share Location" in reply
     assert "bukan Live Location" in reply
-    assert "Atau ketik Desa/Kelurahan, Kecamatan, dan Kota/Kabupaten" in reply
-    assert "3. Deskripsi dampak lokasi" in reply
+    assert "Desa/Kelurahan: Sayung" in reply
+    assert "Deskripsi dampak:" in reply
+    assert "Bantuan yang dibutuhkan:" in reply
     assert "Confidence" not in reply
     assert db.query(Report).count() == 0
     assert db.query(ConversationState).count() == 0
@@ -355,6 +570,60 @@ def test_background_consent_prompt_uses_quick_reply_without_persisting(monkeypat
             "persist": False,
         }
     ]
+
+
+def test_background_sends_location_check_update_before_final_reply(monkeypatch):
+    sent = []
+
+    class FakeDb:
+        def get(self, model, object_id):
+            return SimpleNamespace(id=object_id)
+
+        def rollback(self):
+            pass
+
+        def close(self):
+            pass
+
+    class FakeTriage:
+        def has_current_privacy_consent(self, db, sender):
+            return True
+
+        def ingest(self, db, **kwargs):
+            return SimpleNamespace(id=43), "Lokasi ditemukan."
+
+    class FakeNotifications:
+        def send(self, db, **kwargs):
+            sent.append(kwargs)
+
+    monkeypatch.setattr(webhooks, "SessionLocal", FakeDb)
+    monkeypatch.setattr(webhooks, "triage", FakeTriage())
+    monkeypatch.setattr(webhooks, "notifications", FakeNotifications())
+
+    webhooks._process_whatsapp_message(
+        "whatsapp:+62002",
+        (
+            "FORM LAPORAN PETANI\n"
+            "Desa/Kelurahan: Sayung\n"
+            "Kecamatan: Sayung\n"
+            "Kota/Kabupaten: Demak\n"
+            "Deskripsi dampak: Banjir merendam sawah.\n"
+            "Bantuan yang dibutuhkan: Pompa dan benih\n"
+            "Petani/penggarap di lokasi: YA"
+        ),
+        [],
+        None,
+        None,
+        None,
+    )
+
+    assert sent[0] == {
+        "recipient": "whatsapp:+62002",
+        "body": LOCATION_CHECK_MESSAGE,
+        "kind": "processing_update",
+    }
+    assert sent[1]["body"] == "Lokasi ditemukan."
+    assert sent[1]["report_id"] == 43
 
 
 def test_twilio_notifier_sends_quick_reply_content_without_body():
@@ -771,6 +1040,17 @@ def test_openrouter_classifier_uses_strict_schema_and_model_fallbacks():
         "needs": ["evakuasi"],
         "summary": "Banjir memutus akses dan membutuhkan evakuasi.",
         "confidence": 0.94,
+        "field_confidences": {
+            key: 0.92 for key in FIELD_CONFIDENCE_KEYS
+        },
+        "uncertainties": [],
+        "image_analysis": {
+            "relevant": True,
+            "matches_report": True,
+            "findings": "Terlihat sawah terendam dan akses jalan terputus.",
+            "confidence": 0.91,
+            "reason": "Foto konsisten dengan deskripsi banjir.",
+        },
         "village": "Sayung",
         "district": "Sayung",
         "regency": "Demak",
@@ -806,11 +1086,53 @@ def test_openrouter_classifier_uses_strict_schema_and_model_fallbacks():
     assert result.category == "flood"
     assert result.village == "Sayung"
     assert result.source == "openrouter:openai/gpt-5-mini"
+    assert result.needs == ["evakuasi"]
+    assert result.image_relevant is True
+    assert result.image_matches_report is True
     assert captured["response_format"]["json_schema"]["strict"] is True
     assert captured["extra_body"]["models"] == ["google/gemini-2.5-flash"]
     assert captured["extra_body"]["provider"]["data_collection"] == "deny"
     assert captured["messages"][1]["content"][1]["type"] == "image_url"
     assert "reporter_name" in captured["response_format"]["json_schema"]["schema"]["required"]
+    assert set(
+        captured["response_format"]["json_schema"]["schema"]["properties"]["needs"]["items"]["enum"]
+    ) == set(NEED_CATEGORIES)
+
+
+def test_mock_classifier_normalizes_emergency_and_farming_needs():
+    result = MockClassifier().classify(
+        "Banjir di Sayung cukup parah. Bantuan yang dibutuhkan: sembako, "
+        "air minum, dokter, tenda, pompa, bibit padi, traktor, pakan ternak, "
+        "dan perbaikan irigasi. Tidak ada yang terjebak."
+    )
+
+    assert result.needs == [
+        "bantuan medis",
+        "pangan",
+        "air bersih & sanitasi",
+        "tempat pengungsian",
+        "pompa & drainase",
+        "benih/bibit",
+        "alat/mesin pertanian",
+        "pakan & kesehatan ternak",
+        "perbaikan lahan/irigasi",
+    ]
+
+
+def test_form_yes_no_placeholder_is_not_treated_as_farmer_confirmation():
+    result = MockClassifier().classify(
+        "FORM LAPORAN PETANI\n"
+        "Desa/Kelurahan: Sayung\n"
+        "Kecamatan: Sayung\n"
+        "Kota/Kabupaten: Demak\n"
+        "Deskripsi dampak: Banjir merendam sawah.\n"
+        "Bantuan yang dibutuhkan: BELUM TAHU\n"
+        "Petani/penggarap di lokasi: YA/TIDAK"
+    )
+
+    assert result.is_farmer is None
+    assert result.is_local_farmer is None
+    assert result.needs == []
 
 
 def _make_region_report(db):
@@ -847,6 +1169,25 @@ def _make_region_report(db):
         reporter_is_local=True,
         follow_up_available=True,
         needs=["pompa"],
+        field_confidences={"evidence": 0.9, "location": 0.95, "needs": 0.9},
+        field_confidence_reasons={},
+        field_verification={
+            "evidence": "verified_visual",
+            "location": "verified_geocoded",
+            "needs": "ai_extracted",
+        },
+        evidence_assessments=[
+            {
+                "url": "https://example.com/private.jpg",
+                "status": "verified_visual",
+                "relevant": True,
+                "matches_report": True,
+                "confidence": 0.9,
+                "findings": "Sawah terlihat terendam.",
+                "reason": "Konsisten dengan deskripsi.",
+            }
+        ],
+        follow_up_counts={},
         ai_summary="Sawah terdampak banjir.",
         ai_confidence=0.9,
         triage_source="heuristic",
@@ -907,6 +1248,7 @@ def test_public_region_payload_has_no_reporter_photo_or_precise_pin(db):
     assert "RT 01" not in serialized
     assert public["lat"] == round(region.lat, 2)
     assert public["lon"] == round(region.lon, 2)
+    assert public["aggregate_needs"] == {"pompa & drainase": 1}
 
     responder = region_detail(region.id, view="responder", db=db).model_dump()
     assert responder["reports"][0]["reporter_alias"].startswith("Petani TT-")
@@ -914,6 +1256,9 @@ def test_public_region_payload_has_no_reporter_photo_or_precise_pin(db):
     assert responder["reports"][0]["image_url"].endswith("private.jpg")
     assert responder["reports"][0]["readiness_score"] == 95
     assert responder["reports"][0]["village"] == "Sayung"
+    assert responder["reports"][0]["needs"] == ["pompa & drainase"]
+    assert responder["reports"][0]["verified_evidence_count"] == 1
+    assert responder["reports"][0]["field_confidences"]["location"] == 0.95
     assert responder["reports"][0]["farmer_profile"]["is_local_farmer"] is True
     assert [contact["name"] for contact in responder["nearest_contacts"]] == [
         "Kantor Desa Sayung"
@@ -928,6 +1273,8 @@ def test_mediated_contact_is_removed_from_api_and_dashboard():
     dashboard_html = Path("static/dashboard.html").read_text(encoding="utf-8")
     assert "Hubungi via sistem" not in dashboard_html
     assert "Kontak kantor desa terdekat" in dashboard_html
+    assert "Bantuan dibutuhkan" in dashboard_html
+    assert "Confidence per field" in dashboard_html
 
 
 def test_weather_alert_targets_only_confirmed_local_reporters(db):

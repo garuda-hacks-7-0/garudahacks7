@@ -63,6 +63,11 @@ class ReportOut(BaseModel):
     severity: str
     medical_needed: bool
     needs: list[str] = Field(default_factory=list)
+    field_confidences: dict[str, float] = Field(default_factory=dict)
+    field_confidence_reasons: dict[str, str] = Field(default_factory=dict)
+    field_verification: dict[str, str] = Field(default_factory=dict)
+    evidence_assessments: list[dict[str, object]] = Field(default_factory=list)
+    verified_evidence_count: int = 0
     ai_summary: str
     ai_confidence: float
     triage_source: str

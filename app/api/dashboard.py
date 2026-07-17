@@ -27,7 +27,7 @@ from app.schemas import (
     ReportStatusUpdateResult,
     ReportUpdateOut,
 )
-from app.services.classifier import SEVERITY_ORDER
+from app.services.classifier import SEVERITY_ORDER, normalize_needs
 from app.services.notifications import NotificationService
 from app.services.resources import ResourceService, km_between
 from app.services.triage import EVIDENCE_TARGET
@@ -441,7 +441,16 @@ def _report_out(report: Report) -> ReportOut:
         category=report.category,
         severity=report.severity,
         medical_needed=report.medical_needed,
-        needs=report.needs or [],
+        needs=normalize_needs(report.needs or []),
+        field_confidences=report.field_confidences or {},
+        field_confidence_reasons=report.field_confidence_reasons or {},
+        field_verification=report.field_verification or {},
+        evidence_assessments=report.evidence_assessments or [],
+        verified_evidence_count=sum(
+            1
+            for item in (report.evidence_assessments or [])
+            if item.get("status") == "verified_visual"
+        ),
         ai_summary=report.ai_summary,
         ai_confidence=report.ai_confidence,
         triage_source=report.triage_source,
@@ -497,7 +506,7 @@ def _region_aggregate(
     urgency_counts = Counter(report.severity for report in reports)
     aggregate_needs: Counter[str] = Counter()
     for report in reports:
-        aggregate_needs.update(report.needs or [])
+        aggregate_needs.update(normalize_needs(report.needs or []))
     progress = Counter(report.response_status for report in reports)
     return {
         "id": region.id,
