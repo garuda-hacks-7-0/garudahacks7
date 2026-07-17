@@ -298,7 +298,9 @@ class TriageService:
                     )
                 if attached_report.readiness_score >= READINESS_THRESHOLD:
                     return attached_report, attached_reply
-                return attached_report, FORM_REQUIRED_MESSAGE
+                return attached_report, self._draft_attachment_message(
+                    attached_report
+                )
 
         classification_image = evidence_urls[0] if evidence_urls else None
         if (
@@ -578,6 +580,13 @@ class TriageService:
             self._save_state(db, sender, report.id, pending_fields)
             db.commit()
 
+        if (
+            self.form_required
+            and not self.is_report_form(report.text or "")
+            and (evidence_urls or (lat is not None and lon is not None))
+        ):
+            return report, self._draft_attachment_message(report)
+
         if self._is_start_command(text):
             opening = f"Siap, laporan TT-{report.id:04d} mulai dibuat."
         else:
@@ -827,6 +836,12 @@ class TriageService:
             prefix = "Foto bukti wajib agar laporan dapat diteruskan.\n\n"
         if not recognized_fields and remaining_fields:
             prefix = prefix or "Maaf, saya belum menangkap jawabannya.\n\n"
+        if (
+            self.form_required
+            and not self.is_report_form(report.text or "")
+            and (evidence_urls or (lat is not None and lon is not None))
+        ):
+            return report, self._draft_attachment_message(report)
         if remaining_fields:
             return report, prefix + self._readiness_message(report)
         return (
@@ -1404,6 +1419,21 @@ class TriageService:
         return (
             "Laporanmu tersimpan. Lihat status dan update lengkap di: "
             f"{self.public_url}/track/{report.public_token}"
+        )
+
+    def _draft_attachment_message(self, report: Report) -> str:
+        has_location = self._has_shared_location(report)
+        has_evidence = bool(report.evidence_urls)
+        if has_location and has_evidence:
+            saved_item = "📍📷 Lokasi dan foto"
+        elif has_location:
+            saved_item = "📍 Lokasi"
+        else:
+            saved_item = "📷 Foto"
+        return (
+            f"{saved_item} sudah tersimpan untuk draft *TT-{report.id:04d}*.\n\n"
+            "Sekarang kirim form laporan yang tadi sudah disalin.\n\n"
+            f"{CANCEL_FOOTER}"
         )
 
     def _normalized_command(self, text: str) -> str:
