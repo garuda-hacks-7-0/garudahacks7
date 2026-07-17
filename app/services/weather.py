@@ -4,7 +4,9 @@ class MockWeatherRisk:
     baseline = {
         "Demak": 0.72,
         "Sayung": 0.84,
+        "Sayung, Demak": 0.84,
         "Karanganyar Demak": 0.66,
+        "Karanganyar, Demak": 0.66,
         "Kudus": 0.52,
         "Semarang": 0.58,
         "Shared Location": 0.45,

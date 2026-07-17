@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api import dashboard, webhooks
@@ -27,7 +28,41 @@ app.include_router(dashboard.router)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
+@app.get("/", include_in_schema=False)
+def landing_page() -> FileResponse:
+    return FileResponse("static/index.html")
+
+
+@app.get("/map", include_in_schema=False)
+def map_page() -> FileResponse:
+    return FileResponse("static/dashboard.html")
+
+
+@app.get("/login", include_in_schema=False)
+def login_page() -> FileResponse:
+    return FileResponse("static/login.html")
+
+
+@app.get("/reports", include_in_schema=False)
+def reports_page() -> FileResponse:
+    return FileResponse("static/reports.html")
+
+
+@app.get("/register", include_in_schema=False)
+def register_page() -> FileResponse:
+    return FileResponse("static/register.html")
+
+
+@app.get("/admin", include_in_schema=False)
+def admin_page() -> FileResponse:
+    return FileResponse("static/admin.html")
+
+
+@app.get("/track/{public_token}", include_in_schema=False)
+def report_tracking_page(public_token: str) -> FileResponse:
+    return FileResponse("static/tracking.html")
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
-

@@ -2,7 +2,7 @@ from math import asin, cos, radians, sin, sqrt
 
 from sqlalchemy.orm import Session
 
-from app.models import Resource
+from app.models import LocalContact, Resource
 
 
 def km_between(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -18,3 +18,26 @@ class ResourceService:
         resources = db.query(Resource).all()
         return sorted(resources, key=lambda item: km_between(lat, lon, item.lat, item.lon))[:limit]
 
+    def nearest_contacts(
+        self,
+        db: Session,
+        lat: float,
+        lon: float,
+        limit: int = 3,
+        contact_type: str | None = None,
+        max_distance_km: float | None = None,
+    ) -> list[LocalContact]:
+        query = db.query(LocalContact)
+        if contact_type:
+            query = query.filter(LocalContact.type == contact_type)
+        contacts = query.all()
+        if max_distance_km is not None:
+            contacts = [
+                contact
+                for contact in contacts
+                if km_between(lat, lon, contact.lat, contact.lon) <= max_distance_km
+            ]
+        return sorted(
+            contacts,
+            key=lambda item: km_between(lat, lon, item.lat, item.lon),
+        )[:limit]

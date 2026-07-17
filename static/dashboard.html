@@ -1,209 +1,124 @@
 <!doctype html>
-<html lang="en">
+<html lang="id">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Disaster Triage Dashboard Mock</title>
+    <meta name="description" content="Peta publik dan dashboard responder bencana pertanian Peta.ni." />
+    <title>Peta Bencana — Peta.ni</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Merriweather:wght@700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <style>
-      body { margin: 0; font-family: Arial, sans-serif; color: #17202a; }
-      header { min-height: 56px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 20px; border-bottom: 1px solid #d9e2ec; box-sizing: border-box; }
-      #map { height: calc(100vh - 56px); }
-      .panel { position: absolute; z-index: 500; right: 16px; top: 76px; width: 340px; max-height: calc(100vh - 104px); overflow: auto; background: white; border: 1px solid #d9e2ec; border-radius: 8px; padding: 14px; box-shadow: 0 8px 22px rgba(15, 23, 42, .12); }
-      .region { border-top: 1px solid #edf2f7; padding: 12px 0; }
-      .region:first-child { border-top: 0; }
-      .risk { display: inline-block; padding: 3px 8px; border-radius: 999px; color: white; font-size: 12px; }
-      .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-      .control { display: flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; }
-      button, select { border: 1px solid #b8c4d4; background: #fff; border-radius: 6px; padding: 8px 10px; cursor: pointer; }
-      input[type="range"] { width: 180px; }
-      .muted { color: #5f6c7b; font-size: 12px; }
-      @media (max-width: 760px) {
-        #map { height: calc(100vh - 104px); }
-        .panel { left: 12px; right: 12px; bottom: 12px; top: auto; width: auto; max-height: 42vh; }
-      }
-    </style>
+    <link rel="stylesheet" href="/static/app.css" />
   </head>
-  <body>
-    <header>
-      <strong>WhatsApp Disaster Triage</strong>
-      <div class="controls">
-        <label class="control">
-          Urgency
-          <select id="urgency">
-            <option value="all">All</option>
-            <option value="medical">Medical</option>
-            <option value="critical">Critical</option>
-            <option value="high">High+</option>
-            <option value="medium">Medium+</option>
-          </select>
-        </label>
-        <label class="control">
-          Distance
-          <input id="distance" type="range" min="0" max="13000" step="25" value="13000" />
-          <span id="distance-label">13000 km</span>
-        </label>
-        <button id="use-location">Use live location</button>
-        <button id="send-demo">Send demo WhatsApp report</button>
+  <body class="map-page">
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Peta.ni beranda">
+        <img src="/static/assets/petani-logo.svg" alt="" />
+        <span class="brand-word">Peta.<em>ni</em></span>
+      </a>
+      <button class="mobile-menu-button" type="button" aria-label="Buka menu" aria-expanded="false">☰</button>
+      <nav class="main-nav" aria-label="Navigasi utama">
+        <a class="nav-link" href="/">Beranda</a>
+        <a class="nav-link active" href="/map">Peta</a>
+        <a class="nav-link" href="/reports" data-responder-only>Laporan</a>
+        <a class="nav-link" href="/admin" data-admin-only>Admin</a>
+      </nav>
+      <div class="header-actions">
+        <a class="whatsapp-link" data-whatsapp-link href="#" aria-label="Hubungi Peta.ni melalui WhatsApp">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.75 13.96c-.25-.13-1.47-.72-1.7-.81-.23-.08-.39-.13-.56.13-.16.25-.64.81-.78.97-.14.17-.29.19-.54.06-.25-.12-1.05-.39-2-1.23-.74-.66-1.24-1.47-1.38-1.72-.15-.25-.02-.38.11-.51.11-.11.25-.29.37-.43.13-.15.17-.25.25-.42.08-.16.04-.31-.02-.43-.06-.13-.56-1.35-.77-1.85-.2-.49-.41-.42-.56-.43h-.48c-.17 0-.44.06-.66.31-.23.25-.87.85-.87 2.07s.89 2.4 1.01 2.57c.12.16 1.75 2.67 4.24 3.75.59.26 1.05.41 1.42.52.6.19 1.14.16 1.57.1.48-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.15-1.18-.06-.11-.23-.17-.48-.29M12.04 21.5h-.01a9.46 9.46 0 0 1-4.82-1.32l-.35-.2-3.59.94.96-3.5-.23-.36A9.45 9.45 0 0 1 2.55 12c0-5.23 4.26-9.5 9.5-9.5a9.43 9.43 0 0 1 6.71 2.79A9.4 9.4 0 0 1 21.55 12c0 5.24-4.27 9.5-9.51 9.5m8.08-17.56A11.35 11.35 0 0 0 12.05.59C5.77.59.66 5.7.66 12c0 2 .52 3.95 1.51 5.67L.56 23.54l6-1.57a11.4 11.4 0 0 0 5.48 1.4h.01c6.28 0 11.39-5.11 11.39-11.39 0-3.04-1.18-5.9-3.33-8.05" /></svg>
+        </a>
+        <a class="button button-primary session-link" data-session-link href="/login">Contribute Now</a>
       </div>
-      <span id="status"></span>
     </header>
-    <div id="map"></div>
-    <aside class="panel">
-      <strong>Regional queue</strong>
-      <div id="regions"></div>
-    </aside>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script>
-      const map = L.map("map").setView([-6.9, 110.62], 10);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(map);
-      const layer = L.layerGroup().addTo(map);
-      const userLayer = L.layerGroup().addTo(map);
-      const status = document.querySelector("#status");
-      const urgency = document.querySelector("#urgency");
-      const distance = document.querySelector("#distance");
-      const distanceLabel = document.querySelector("#distance-label");
-      const fallbackLocation = { lat: -6.9218, lon: 110.5157, label: "Demo location: Sayung" };
-      let currentLocation = fallbackLocation;
 
-      function color(risk) {
-        if (risk >= 0.75) return "#c0392b";
-        if (risk >= 0.55) return "#d68910";
-        return "#2874a6";
-      }
+    <main>
+      <section class="map-stage" aria-label="Peta laporan bencana pertanian">
+        <div id="map"></div>
 
-      function updateDistanceLabel() {
-        distanceLabel.textContent = `${Number(distance.value).toLocaleString()} km`;
-      }
+        <div class="map-toolbar">
+          <label class="map-search">
+            <span class="visually-hidden">Cari wilayah</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+            <input id="map-search" type="search" placeholder="Cari kota atau kabupaten" autocomplete="off" />
+          </label>
+          <button class="icon-button" id="filter-toggle" type="button" aria-label="Buka filter" aria-expanded="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+          </button>
+        </div>
 
-      function escapeHtml(value) {
-        return String(value)
-          .replaceAll("&", "&amp;")
-          .replaceAll("<", "&lt;")
-          .replaceAll(">", "&gt;")
-          .replaceAll('"', "&quot;")
-          .replaceAll("'", "&#39;");
-      }
-
-      function reportPreview(report) {
-        const bits = [report.category, report.severity];
-        if (report.medical_needed) bits.push("medical");
-        if (report.location_label) bits.push(report.location_label);
-        return bits.join(" · ");
-      }
-
-      function setOperatorLocation(location) {
-        currentLocation = location;
-        userLayer.clearLayers();
-        L.circleMarker([location.lat, location.lon], {
-          radius: 7,
-          color: "#1f618d",
-          fillColor: "#85c1e9",
-          fillOpacity: 0.9
-        }).addTo(userLayer).bindPopup(location.label);
-      }
-
-      function queryString() {
-        const params = new URLSearchParams({
-          urgency: urgency.value,
-          lat: currentLocation.lat,
-          lon: currentLocation.lon,
-          max_distance_km: distance.value
-        });
-        return params.toString();
-      }
-
-      async function refresh() {
-        updateDistanceLabel();
-        const regions = await fetch(`/api/regions?${queryString()}`).then((res) => res.json());
-        layer.clearLayers();
-        document.querySelector("#regions").innerHTML = regions.length ? regions.map((region) => `
-          <div class="region">
-            <div><strong>${region.name}</strong> <span class="risk" style="background:${color(region.risk_score)}">${Math.round(region.risk_score * 100)} risk</span></div>
-            <p>${region.last_summary}</p>
-            <div class="muted">${region.distance_km ?? "?"} km from ${currentLocation.label}</div>
-            <small>${region.nearest_resources.map((r) => r.name).join(" · ")}</small>
-            <div style="margin-top:10px; display:grid; gap:8px;">
-              ${region.reports.slice(0, 3).map((report) => `
-                <div style="padding:8px 10px; border:1px solid #edf2f7; border-radius:6px; background:#fbfdff;">
-                  <div style="font-size:12px; font-weight:700; margin-bottom:4px;">${escapeHtml(reportPreview(report))}</div>
-                  <div style="font-size:13px; line-height:1.35; color:#243447;">${escapeHtml(report.text)}</div>
-                </div>
-              `).join("")}
-            </div>
+        <div class="filter-popover" id="filter-popover">
+          <div class="filter-grid">
+            <label class="field"><span>Jenis kejadian</span><select id="category"><option value="all">Semua kejadian</option><option value="flood">Banjir</option><option value="drought">Kekeringan</option><option value="crop_damage">Kerusakan tanaman</option><option value="crop_pest">Hama tanaman</option><option value="storm">Angin kencang</option><option value="fire">Kebakaran lahan</option><option value="landslide">Longsor</option></select></label>
+            <label class="field"><span>Rentang waktu</span><select id="hours"><option value="24">24 jam terakhir</option><option value="168">7 hari terakhir</option><option value="720" selected>30 hari terakhir</option><option value="8760">1 tahun terakhir</option></select></label>
+            <label class="field" data-responder-only><span>Urgensi</span><select id="urgency"><option value="all">Semua urgensi</option><option value="medical">Butuh medis</option><option value="critical">Kritis</option><option value="high">Tinggi ke atas</option><option value="medium">Sedang ke atas</option></select></label>
+            <label class="field" data-responder-only><span>Organisasi aktif</span><select id="organization"><option>Memuat…</option></select></label>
+            <label class="field" data-responder-only><span>Jarak maksimum: <b id="distance-label">13.000 km</b></span><input id="distance" type="range" min="5" max="13000" step="25" value="13000" /></label>
           </div>
-        `).join("") : `<p class="muted">No regions match the current filters.</p>`;
-        for (const region of regions) {
-          const recentReports = region.reports.slice(0, 3).map((report) => `
-            <div style="margin-top:8px; padding-top:8px; border-top:1px solid rgba(0,0,0,.08);">
-              <div style="font-size:12px; font-weight:700; margin-bottom:3px;">${escapeHtml(reportPreview(report))}</div>
-              <div style="font-size:12px; line-height:1.35;">${escapeHtml(report.text)}</div>
+          <div class="filter-actions">
+            <div class="demo-tools" data-responder-only>
+              <button class="button button-outline button-small" id="use-location" type="button">Lokasi saya</button>
+              <button class="button button-outline button-small" id="send-demo" type="button">Buat laporan demo</button>
+              <button class="button button-outline button-small" id="open-alert" type="button">Admin alert</button>
             </div>
-          `).join("");
-          const marker = L.circleMarker([region.lat, region.lon], {
-            radius: 12 + region.reports.length * 2,
-            color: color(region.risk_score),
-            fillColor: color(region.risk_score),
-            fillOpacity: 0.72
-          }).addTo(layer);
-          marker.bindPopup(`
-            <strong>${escapeHtml(region.name)}</strong><br>
-            ${escapeHtml(region.last_summary)}<br>
-            ${region.distance_km ?? "?"} km away
-            <div style="margin-top:8px; max-width:260px;">${recentReports || ""}</div>
-          `);
-        }
-      }
+            <button class="button button-primary button-small" id="apply-filter" type="button">Terapkan filter</button>
+          </div>
+        </div>
 
-      document.querySelector("#use-location").addEventListener("click", () => {
-        if (!navigator.geolocation) {
-          status.textContent = "geolocation unavailable; using demo location";
-          setOperatorLocation(fallbackLocation);
-          refresh();
-          return;
-        }
+        <div class="map-status" id="map-status" role="status" aria-live="polite"></div>
 
-        status.textContent = "getting location...";
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            setOperatorLocation({
-              lat: position.coords.latitude,
-              lon: position.coords.longitude,
-              label: "Live location"
-            });
-            status.textContent = "using live location";
-            refresh();
-          },
-          () => {
-            status.textContent = "location blocked; using demo location";
-            setOperatorLocation(fallbackLocation);
-            refresh();
-          },
-          { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
-        );
-      });
+        <div class="map-legend" aria-label="Legenda urgensi">
+          <strong>Tingkat Urgensi</strong>
+          <div class="legend-row"><span class="legend-dot" style="background:#de0000"></span>Urgensi Tinggi</div>
+          <div class="legend-row"><span class="legend-dot" style="background:#f6d254"></span>Urgensi Sedang</div>
+          <div class="legend-row"><span class="legend-dot" style="background:#347428"></span>Urgensi Rendah</div>
+        </div>
 
-      urgency.addEventListener("change", refresh);
-      distance.addEventListener("input", refresh);
+        <aside class="detail-panel" id="detail-panel" aria-live="polite" aria-label="Detail wilayah">
+          <div class="panel-header"><h2 id="panel-title">Detail wilayah</h2><button class="close-button" id="close-panel" type="button" aria-label="Tutup detail">×</button></div>
+          <div id="panel-content"></div>
+        </aside>
+      </section>
+    </main>
 
-      document.querySelector("#send-demo").addEventListener("click", async () => {
-        status.textContent = "sending...";
-        await fetch("/demo/reports", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sender: "whatsapp:+628-demo",
-            text: "banjir besar di Sayung Demak, jalan putus, ada lansia sakit perlu puskesmas",
-            image_url: "https://example.com/flooded-field.jpg"
-          })
-        });
-        status.textContent = "demo report received";
-        await refresh();
-      });
+    <footer class="site-footer">
+      <div class="footer-brand">
+        <a class="brand" href="/"><img src="/static/assets/petani-logo.svg" alt="" /><span class="brand-word">Peta.<em>ni</em></span></a>
+        <p>Satu peta kolaboratif untuk mempercepat respons bencana pertanian dan menjaga petani tetap terhubung dengan bantuan.</p>
+      </div>
+      <div class="footer-column"><h3>Navigasi</h3><div class="footer-links"><a href="/">Beranda</a><a href="/map">Peta Bencana</a><a href="/reports" data-responder-only>Laporan</a><a href="/login">Gabung sebagai Relawan</a></div></div>
+      <div class="footer-column"><h3>Terhubung</h3><div class="footer-links"><a data-whatsapp-link href="#">WhatsApp Peta.ni</a><a href="mailto:halo@peta.ni">halo@peta.ni</a></div><div class="socials"><a href="#" aria-label="Instagram">ig</a><a href="#" aria-label="X">x</a><a href="#" aria-label="LinkedIn">in</a></div></div>
+    </footer>
 
-      setOperatorLocation(fallbackLocation);
-      refresh();
-      setInterval(refresh, 5000);
-    </script>
+    <dialog class="modal" id="status-dialog">
+      <form class="modal-content" id="status-form">
+        <div class="panel-header"><h2>Update status laporan</h2><button class="close-button" data-close-dialog type="button" aria-label="Tutup">×</button></div>
+        <input id="status-report-id" type="hidden" />
+        <div class="modal-form">
+          <label class="field"><span>Status penanganan</span><select id="new-status" required><option value="in_progress">Sedang ditangani</option><option value="resolved">Selesai</option><option value="rejected">Minta pemeriksaan ulang</option></select></label>
+          <label class="field"><span>Catatan untuk petani</span><textarea id="status-note" placeholder="Contoh: tim lapangan menuju lokasi."></textarea></label>
+          <label class="field"><span>Tautan dokumentasi (opsional, satu per baris)</span><textarea id="status-documentation" placeholder="https://contoh.org/foto-penanganan.jpg"></textarea></label>
+        </div>
+        <div class="modal-actions"><button class="button button-outline button-small" data-close-dialog type="button">Batal</button><button class="button button-primary button-small" type="submit">Simpan update</button></div>
+      </form>
+    </dialog>
+
+    <dialog class="modal" id="alert-dialog">
+      <form class="modal-content" id="alert-form">
+        <div class="panel-header"><h2>Simulasi peringatan BMKG</h2><button class="close-button" data-close-alert type="button" aria-label="Tutup">×</button></div>
+        <div class="modal-form">
+          <label class="field"><span>Area</span><input name="area_name" value="Sayung, Demak" required /></label>
+          <div class="filter-grid"><label class="field"><span>Latitude</span><input name="lat" type="number" step="any" value="-6.9218" required /></label><label class="field"><span>Longitude</span><input name="lon" type="number" step="any" value="110.5157" required /></label></div>
+          <label class="field"><span>Radius (km)</span><input name="radius_km" type="number" value="20" min="1" max="500" required /></label>
+          <label class="field"><span>Pesan</span><textarea name="message" required>Waspada hujan ekstrem dan potensi banjir. Amankan dokumen, hasil panen, dan ternak; ikuti arahan posko setempat.</textarea></label>
+        </div>
+        <div class="modal-actions"><button class="button button-outline button-small" data-close-alert type="button">Batal</button><button class="button button-primary button-small" type="submit">Kirim peringatan</button></div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/static/site.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="/static/dashboard.js"></script>
   </body>
 </html>
