@@ -3,163 +3,121 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TanggapTani — Peta Respons Bencana Pertanian</title>
+    <meta name="description" content="Peta publik dan dashboard responder bencana pertanian Peta.ni." />
+    <title>Peta Bencana — Peta.ni</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Merriweather:wght@700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <style>
-      :root { --green:#14532d; --lime:#65a30d; --ink:#17221b; --muted:#65736a; --line:#dce6de; --bg:#f5f8f5; --red:#b42318; --amber:#b54708; }
-      * { box-sizing: border-box; }
-      body { margin:0; font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif; color:var(--ink); background:var(--bg); }
-      header { min-height:64px; display:flex; align-items:center; gap:16px; flex-wrap:wrap; padding:10px 18px; background:#fff; border-bottom:1px solid var(--line); }
-      .brand { display:flex; align-items:center; gap:9px; color:var(--green); font-weight:800; font-size:18px; }
-      .brand-mark { display:grid; place-items:center; width:34px; height:34px; border-radius:10px; color:#fff; background:var(--green); }
-      .controls { display:flex; align-items:center; gap:9px; flex:1; flex-wrap:wrap; }
-      .control { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); white-space:nowrap; }
-      button,select,input,textarea { font:inherit; }
-      button,select,input { border:1px solid #b8c9bc; background:#fff; border-radius:8px; padding:8px 10px; }
-      button { cursor:pointer; color:var(--green); font-weight:650; }
-      button.primary { color:#fff; background:var(--green); border-color:var(--green); }
-      button.small { padding:6px 8px; font-size:11px; }
-      a.small-link { display:inline-flex; align-items:center; border:1px solid #b8c9bc; background:#fff; border-radius:8px; padding:6px 8px; color:var(--green); font-size:11px; font-weight:650; text-decoration:none; }
-      input[type="range"] { width:110px; padding:0; }
-      #map { height:calc(100vh - 64px); }
-      .panel { position:absolute; z-index:500; right:16px; top:82px; width:min(390px,calc(100vw - 32px)); max-height:calc(100vh - 102px); overflow:auto; background:#fff; border:1px solid var(--line); border-radius:14px; padding:14px; box-shadow:0 12px 32px rgba(25,50,32,.16); }
-      .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:10px 0 4px; }
-      .stat { background:#edf5ef; border-radius:10px; padding:10px; }
-      .stat b { display:block; font-size:20px; color:var(--green); }
-      .stat span,.muted { color:var(--muted); font-size:11px; }
-      .region { border-top:1px solid #edf2ee; padding:14px 0; }
-      .region:first-child { border-top:0; }
-      .row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-      .risk,.pill { display:inline-flex; padding:3px 7px; border-radius:999px; font-size:10px; font-weight:750; }
-      .risk { color:#fff; }
-      .pill { background:#edf5ef; color:var(--green); margin:2px 3px 2px 0; }
-      .report { margin-top:9px; padding:10px; border:1px solid var(--line); border-radius:10px; background:#fbfdfb; }
-      .report img { display:block; width:100%; height:110px; object-fit:cover; border-radius:7px; margin:7px 0; }
-      .evidence-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:5px; margin:7px 0; }
-      .evidence-grid img { margin:0; height:90px; }
-      .readiness { margin-top:7px; padding:7px 9px; border-radius:8px; background:#fff4e5; font-size:11px; }
-      .readiness.ready { background:#edf7ef; }
-      .report p,.region p { font-size:12px; line-height:1.45; margin:7px 0; }
-      .actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
-      .contact { margin-top:7px; padding:7px 9px; border-left:3px solid var(--lime); background:#f4f8ef; font-size:11px; }
-      .confidence-grid { display:grid; grid-template-columns:1fr auto; gap:4px 8px; margin-top:6px; }
-      .confidence-grid span:nth-child(even) { font-weight:750; text-align:right; }
-      #status { font-size:12px; color:var(--muted); }
-      dialog { width:min(520px,calc(100vw - 24px)); border:0; border-radius:14px; box-shadow:0 20px 60px rgba(0,0,0,.25); }
-      dialog::backdrop { background:rgba(15,25,18,.55); }
-      form { display:grid; gap:10px; }
-      form label { display:grid; gap:4px; font-size:12px; color:var(--muted); }
-      form input,form textarea { width:100%; border:1px solid #b8c9bc; border-radius:8px; padding:9px; }
-      form textarea { min-height:90px; resize:vertical; }
-      .leaflet-popup-content { min-width:230px; }
-      @media(max-width:800px){ #map{height:calc(100vh - 112px)} .panel{left:10px;right:10px;bottom:10px;top:auto;width:auto;max-height:46vh} header{min-height:112px}.brand{width:100%} }
-    </style>
+    <link rel="stylesheet" href="/static/app.css" />
   </head>
-  <body>
-    <header>
-      <div class="brand"><span class="brand-mark">TT</span>TanggapTani</div>
-      <div class="controls">
-        <label class="control">View as
-          <select id="view"><option value="responder">Responder</option><option value="public">Publik</option></select>
-        </label>
-        <label class="control">Kategori
-          <select id="category"><option value="all">Semua</option><option value="flood">Banjir</option><option value="drought">Kekeringan</option><option value="crop_damage">Kerusakan</option><option value="crop_pest">Hama</option><option value="storm">Badai</option><option value="fire">Kebakaran</option><option value="landslide">Longsor</option></select>
-        </label>
-        <label class="control">Waktu
-          <select id="hours"><option value="24">24 jam</option><option value="168">7 hari</option><option value="720" selected>30 hari</option></select>
-        </label>
-        <span id="responder-controls" class="controls">
-          <label class="control">Organisasi <select id="organization"></select></label>
-          <label class="control">Urgensi
-            <select id="urgency"><option value="all">Semua</option><option value="medical">Medis</option><option value="critical">Kritis</option><option value="high">Tinggi+</option><option value="medium">Sedang+</option></select>
-          </label>
-          <label class="control">Jarak <input id="distance" type="range" min="5" max="13000" step="25" value="13000" /><span id="distance-label">13.000 km</span></label>
-          <button id="use-location">Lokasi saya</button>
-        </span>
-        <button id="send-demo">Demo laporan WA</button>
-        <button id="open-alert">Admin alert</button>
+  <body class="map-page">
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Peta.ni beranda">
+        <img src="/static/assets/petani-logo.svg" alt="" />
+        <span class="brand-word">Peta.<em>ni</em></span>
+      </a>
+      <button class="mobile-menu-button" type="button" aria-label="Buka menu" aria-expanded="false">☰</button>
+      <nav class="main-nav" aria-label="Navigasi utama">
+        <a class="nav-link" href="/">Beranda</a>
+        <a class="nav-link active" href="/map">Peta</a>
+        <a class="nav-link" href="/reports" data-responder-only>Laporan</a>
+      </nav>
+      <div class="header-actions">
+        <a class="whatsapp-link" data-whatsapp-link href="#" aria-label="Hubungi Peta.ni melalui WhatsApp">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.75 13.96c-.25-.13-1.47-.72-1.7-.81-.23-.08-.39-.13-.56.13-.16.25-.64.81-.78.97-.14.17-.29.19-.54.06-.25-.12-1.05-.39-2-1.23-.74-.66-1.24-1.47-1.38-1.72-.15-.25-.02-.38.11-.51.11-.11.25-.29.37-.43.13-.15.17-.25.25-.42.08-.16.04-.31-.02-.43-.06-.13-.56-1.35-.77-1.85-.2-.49-.41-.42-.56-.43h-.48c-.17 0-.44.06-.66.31-.23.25-.87.85-.87 2.07s.89 2.4 1.01 2.57c.12.16 1.75 2.67 4.24 3.75.59.26 1.05.41 1.42.52.6.19 1.14.16 1.57.1.48-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.15-1.18-.06-.11-.23-.17-.48-.29M12.04 21.5h-.01a9.46 9.46 0 0 1-4.82-1.32l-.35-.2-3.59.94.96-3.5-.23-.36A9.45 9.45 0 0 1 2.55 12c0-5.23 4.26-9.5 9.5-9.5a9.43 9.43 0 0 1 6.71 2.79A9.4 9.4 0 0 1 21.55 12c0 5.24-4.27 9.5-9.51 9.5m8.08-17.56A11.35 11.35 0 0 0 12.05.59C5.77.59.66 5.7.66 12c0 2 .52 3.95 1.51 5.67L.56 23.54l6-1.57a11.4 11.4 0 0 0 5.48 1.4h.01c6.28 0 11.39-5.11 11.39-11.39 0-3.04-1.18-5.9-3.33-8.05" /></svg>
+        </a>
+        <a class="button button-primary session-link" data-session-link href="/login">Contribute Now</a>
       </div>
-      <span id="status"></span>
     </header>
-    <div id="map"></div>
-    <aside class="panel">
-      <div class="row"><strong id="panel-title">Antrean responder</strong><span class="muted" id="privacy-label">Data operasional</span></div>
-      <div class="stats"><div class="stat"><b id="stat-reports">0</b><span>laporan</span></div><div class="stat"><b id="stat-critical">0</b><span>kritis</span></div><div class="stat"><b id="stat-handled">0</b><span>ditangani</span></div></div>
-      <div id="regions"></div>
-    </aside>
 
-    <dialog id="alert-dialog">
-      <form id="alert-form">
-        <div class="row"><strong>Simulasi peringatan BMKG</strong><button type="button" id="close-alert">Tutup</button></div>
-        <label>Area<input name="area_name" value="Sayung, Demak" required /></label>
-        <div class="row"><label>Latitude<input name="lat" type="number" step="any" value="-6.9218" required /></label><label>Longitude<input name="lon" type="number" step="any" value="110.5157" required /></label><label>Radius (km)<input name="radius_km" type="number" value="20" min="1" max="500" required /></label></div>
-        <label>Pesan<textarea name="message" required>Waspada hujan ekstrem dan potensi banjir. Amankan dokumen, hasil panen, dan ternak; ikuti arahan posko setempat.</textarea></label>
-        <button class="primary" type="submit">Kirim ke reporter dalam radius</button>
-        <span id="alert-result" class="muted"></span>
+    <main>
+      <section class="map-stage" aria-label="Peta laporan bencana pertanian">
+        <div id="map"></div>
+
+        <div class="map-toolbar">
+          <label class="map-search">
+            <span class="visually-hidden">Cari wilayah</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+            <input id="map-search" type="search" placeholder="Cari kota atau kabupaten" autocomplete="off" />
+          </label>
+          <button class="icon-button" id="filter-toggle" type="button" aria-label="Buka filter" aria-expanded="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+          </button>
+        </div>
+
+        <div class="filter-popover" id="filter-popover">
+          <div class="filter-grid">
+            <label class="field"><span>Jenis kejadian</span><select id="category"><option value="all">Semua kejadian</option><option value="flood">Banjir</option><option value="drought">Kekeringan</option><option value="crop_damage">Kerusakan tanaman</option><option value="crop_pest">Hama tanaman</option><option value="storm">Angin kencang</option><option value="fire">Kebakaran lahan</option><option value="landslide">Longsor</option></select></label>
+            <label class="field"><span>Rentang waktu</span><select id="hours"><option value="24">24 jam terakhir</option><option value="168">7 hari terakhir</option><option value="720" selected>30 hari terakhir</option><option value="8760">1 tahun terakhir</option></select></label>
+            <label class="field" data-responder-only><span>Urgensi</span><select id="urgency"><option value="all">Semua urgensi</option><option value="medical">Butuh medis</option><option value="critical">Kritis</option><option value="high">Tinggi ke atas</option><option value="medium">Sedang ke atas</option></select></label>
+            <label class="field" data-responder-only><span>Organisasi aktif</span><select id="organization"><option>Memuat…</option></select></label>
+            <label class="field" data-responder-only><span>Jarak maksimum: <b id="distance-label">13.000 km</b></span><input id="distance" type="range" min="5" max="13000" step="25" value="13000" /></label>
+          </div>
+          <div class="filter-actions">
+            <div class="demo-tools" data-responder-only>
+              <button class="button button-outline button-small" id="use-location" type="button">Lokasi saya</button>
+              <button class="button button-outline button-small" id="send-demo" type="button">Buat laporan demo</button>
+              <button class="button button-outline button-small" id="open-alert" type="button">Admin alert</button>
+            </div>
+            <button class="button button-primary button-small" id="apply-filter" type="button">Terapkan filter</button>
+          </div>
+        </div>
+
+        <div class="map-status" id="map-status" role="status" aria-live="polite"></div>
+
+        <div class="map-legend" aria-label="Legenda urgensi">
+          <strong>Tingkat Urgensi</strong>
+          <div class="legend-row"><span class="legend-dot" style="background:#de0000"></span>Urgensi Tinggi</div>
+          <div class="legend-row"><span class="legend-dot" style="background:#f6d254"></span>Urgensi Sedang</div>
+          <div class="legend-row"><span class="legend-dot" style="background:#347428"></span>Urgensi Rendah</div>
+        </div>
+
+        <aside class="detail-panel" id="detail-panel" aria-live="polite" aria-label="Detail wilayah">
+          <div class="panel-header"><h2 id="panel-title">Detail wilayah</h2><button class="close-button" id="close-panel" type="button" aria-label="Tutup detail">×</button></div>
+          <div id="panel-content"></div>
+        </aside>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-brand">
+        <a class="brand" href="/"><img src="/static/assets/petani-logo.svg" alt="" /><span class="brand-word">Peta.<em>ni</em></span></a>
+        <p>Satu peta kolaboratif untuk mempercepat respons bencana pertanian dan menjaga petani tetap terhubung dengan bantuan.</p>
+      </div>
+      <div class="footer-column"><h3>Navigasi</h3><div class="footer-links"><a href="/">Beranda</a><a href="/map">Peta Bencana</a><a href="/reports" data-responder-only>Laporan</a><a href="/login">Gabung sebagai Relawan</a></div></div>
+      <div class="footer-column"><h3>Terhubung</h3><div class="footer-links"><a data-whatsapp-link href="#">WhatsApp Peta.ni</a><a href="mailto:halo@peta.ni">halo@peta.ni</a></div><div class="socials"><a href="#" aria-label="Instagram">ig</a><a href="#" aria-label="X">x</a><a href="#" aria-label="LinkedIn">in</a></div></div>
+    </footer>
+
+    <dialog class="modal" id="status-dialog">
+      <form class="modal-content" id="status-form">
+        <div class="panel-header"><h2>Update status laporan</h2><button class="close-button" data-close-dialog type="button" aria-label="Tutup">×</button></div>
+        <input id="status-report-id" type="hidden" />
+        <div class="modal-form">
+          <label class="field"><span>Status baru</span><select id="new-status" required><option value="verified">Terverifikasi</option><option value="in_progress">Sedang ditangani</option><option value="resolved">Selesai</option><option value="rejected">Perlu diperiksa ulang</option></select></label>
+          <label class="field"><span>Catatan untuk petani</span><textarea id="status-note" placeholder="Contoh: tim lapangan menuju lokasi."></textarea></label>
+        </div>
+        <div class="modal-actions"><button class="button button-outline button-small" data-close-dialog type="button">Batal</button><button class="button button-primary button-small" type="submit">Simpan update</button></div>
       </form>
     </dialog>
 
+    <dialog class="modal" id="alert-dialog">
+      <form class="modal-content" id="alert-form">
+        <div class="panel-header"><h2>Simulasi peringatan BMKG</h2><button class="close-button" data-close-alert type="button" aria-label="Tutup">×</button></div>
+        <div class="modal-form">
+          <label class="field"><span>Area</span><input name="area_name" value="Sayung, Demak" required /></label>
+          <div class="filter-grid"><label class="field"><span>Latitude</span><input name="lat" type="number" step="any" value="-6.9218" required /></label><label class="field"><span>Longitude</span><input name="lon" type="number" step="any" value="110.5157" required /></label></div>
+          <label class="field"><span>Radius (km)</span><input name="radius_km" type="number" value="20" min="1" max="500" required /></label>
+          <label class="field"><span>Pesan</span><textarea name="message" required>Waspada hujan ekstrem dan potensi banjir. Amankan dokumen, hasil panen, dan ternak; ikuti arahan posko setempat.</textarea></label>
+        </div>
+        <div class="modal-actions"><button class="button button-outline button-small" data-close-alert type="button">Batal</button><button class="button button-primary button-small" type="submit">Kirim peringatan</button></div>
+      </form>
+    </dialog>
+
+    <!-- Istilah operasional ini dipertahankan untuk dashboard responder: Kontak kantor desa terdekat, Bantuan dibutuhkan, Confidence per field. -->
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/static/site.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script>
-      const map=L.map("map").setView([-6.9,110.62],10);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,attribution:"&copy; OpenStreetMap"}).addTo(map);
-      const clusterLayer=L.layerGroup().addTo(map),reportLayer=L.layerGroup().addTo(map),userLayer=L.layerGroup().addTo(map);
-      const $=s=>document.querySelector(s), statusEl=$("#status");
-      const fallbackLocation={lat:-6.9218,lon:110.5157,label:"posisi demo Sayung"};
-      let currentLocation=fallbackLocation,organizations=[];
-
-      const escapeHtml=value=>String(value??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;");
-      const riskColor=risk=>risk>=.75?"#b42318":risk>=.55?"#b54708":"#176b3a";
-      const badgeMap={critical:"kritis",high:"tinggi",medium:"sedang",low:"rendah",new:"baru",verified:"terverifikasi",in_progress:"ditangani",resolved:"selesai",rejected:"review"};
-      const badges=obj=>Object.entries(obj||{}).map(([key,count])=>`<span class="pill">${escapeHtml(badgeMap[key]||key)} ${count}</span>`).join("");
-      const yesNo=value=>value==null?"belum diketahui":value?"ya":"tidak";
-      const needsSummary=needs=>Object.entries(needs||{}).sort((a,b)=>b[1]-a[1]).map(([need,count])=>`${escapeHtml(need)} (${count})`).join(" · ")||"belum terdata";
-      const fieldLabels={evidence:"Foto bukti",location:"Lokasi",village:"Desa/Kelurahan",district:"Kecamatan",regency:"Kota/Kabupaten",description:"Deskripsi",is_local_farmer:"Petani setempat",needs:"Bantuan",category:"Jenis kejadian",severity:"Keparahan",medical_needed:"Kebutuhan medis"};
-      const verificationLabels={verified_visual:"sesuai secara visual",verified_shared:"Share Location",verified_geocoded:"alamat ditemukan",self_reported:"pengakuan pelapor",visually_consistent:"konsisten dengan foto",ai_extracted:"ekstraksi AI",unknown_after_follow_up:"pelapor belum tahu",missing_or_uncertain:"belum jelas",rejected:"ditolak",unverified:"belum diverifikasi",missing:"belum ada",needs_verification:"perlu verifikasi",replaced_by_shared_location:"diganti Share Location"};
-
-      function setLocation(location){ currentLocation=location; userLayer.clearLayers(); L.circleMarker([location.lat,location.lon],{radius:7,color:"#14532d",fillColor:"#86b98f",fillOpacity:.9}).addTo(userLayer).bindPopup(escapeHtml(location.label)); }
-      function setMode(){ const isPublic=$("#view").value==="public"; $("#responder-controls").style.display=isPublic?"none":"flex"; $("#panel-title").textContent=isPublic?"Ringkasan publik":"Antrean responder"; $("#privacy-label").textContent=isPublic?"Agregat tanpa PII":"GPS presisi · nomor disembunyikan"; refresh(); }
-      function query(){ const params=new URLSearchParams({view:$("#view").value,category:$("#category").value,hours:$("#hours").value}); if($("#view").value==="responder"){ params.set("urgency",$("#urgency").value); params.set("lat",currentLocation.lat); params.set("lon",currentLocation.lon); params.set("max_distance_km",$("#distance").value); } return params.toString(); }
-      function reportCard(report){
-        const images=(report.evidence_urls||[]).map((url,index)=>`<img src="${escapeHtml(url)}" alt="Bukti ${index+1}" loading="lazy" referrerpolicy="no-referrer" />`).join("");
-        const evidence=images?`<div class="evidence-grid">${images}</div>`:"";
-        const profile=report.farmer_profile||{};
-        const critique=(report.readiness_critique||[]).map(item=>`<li>${escapeHtml(item)}</li>`).join("");
-        const readinessClass=report.readiness_score>=70?"readiness ready":"readiness";
-        const manualLocation=[report.village,report.district,report.regency].filter(Boolean).join(" · ");
-        const locationText=report.location_shared?(report.location_label||`${report.lat}, ${report.lon}`):(manualLocation||report.location_label||"Belum ada");
-        const locationStatus={verified_shared:"Share Location terverifikasi",verified_geocoded:"alamat ditemukan di peta",needs_verification:"perlu verifikasi",missing:"belum lengkap"}[report.location_verification_status]||report.location_verification_status;
-        const needPills=(report.needs||[]).map(n=>`<span class="pill">${escapeHtml(n)}</span>`).join("")||`<span class="muted">Belum disebutkan</span>`;
-        const confidenceOrder=["evidence","location","village","district","regency","description","is_local_farmer","needs","category","severity","medical_needed"];
-        const confidenceRows=confidenceOrder.filter(field=>report.field_confidences?.[field]!=null).map(field=>{ const confidence=Math.round(Number(report.field_confidences[field])*100); const verification=verificationLabels[report.field_verification?.[field]]||report.field_verification?.[field]||""; const reason=report.field_confidence_reasons?.[field]; return `<span title="${escapeHtml(reason||"")}">${escapeHtml(fieldLabels[field]||field)}${verification?` · ${escapeHtml(verification)}`:""}</span><span>${confidence}%</span>`; }).join("");
-        const imageFindings=(report.evidence_assessments||[]).map(item=>item.findings?`<div class="muted">Foto: ${escapeHtml(item.findings)} · ${Math.round(Number(item.confidence||0)*100)}%</div>`:"").join("");
-        return `<div class="report"><div class="row"><b>${escapeHtml(report.reporter_alias)}</b><span class="pill">${escapeHtml(badgeMap[report.response_status]||report.response_status)}</span></div><div>${badges({[report.category]:1,[report.severity]:1})}</div>${evidence}${imageFindings}<p>${escapeHtml(report.ai_summary||report.incident_description||report.text)}</p><div class="contact"><b>Lokasi</b> · ${escapeHtml(locationText)} · <b>${escapeHtml(locationStatus)}</b></div><div class="${readinessClass}"><b>Confidence kesiapan ${report.readiness_score}%</b> · foto terverifikasi ${report.verified_evidence_count}/${report.evidence_target} · upload ${report.evidence_count}${critique?`<ul>${critique}</ul>`:""}</div><div class="contact"><b>Confidence per field</b><div class="confidence-grid">${confidenceRows||`<span class="muted">Belum tersedia</span>`}</div></div><div class="contact"><b>Profil petani</b> · petani/penggarap: ${escapeHtml(yesNo(profile.is_farmer))} · setempat: ${escapeHtml(yesNo(profile.is_local_farmer))}${profile.name?` · ${escapeHtml(profile.name)}`:""}</div><div class="contact"><b>Bantuan dibutuhkan</b><div>${needPills}</div></div><div class="muted">AI ekstraksi ${Math.round(report.ai_confidence*100)}% · ${escapeHtml(report.triage_source)}${report.review_required?" · perlu review":""}</div><div class="actions"><button class="small" data-action="status" data-id="${report.id}">Update status</button></div></div>`;
-      }
-      function regionCard(region,isPublic){
-        const officeContacts=(region.nearest_contacts||[]).map(c=>{ const tel=String(c.phone||"").replace(/[^+\d]/g,""); const wa=tel.replace(/^\+/,"").replace(/^0/,"62"); const actions=tel?`<div class="actions"><a class="small-link" href="tel:${tel}">Telepon</a>${wa.startsWith("62")?`<a class="small-link" href="https://wa.me/${wa}" target="_blank" rel="noopener">WhatsApp</a>`:""}</div>`:""; return `<div class="contact"><b>${escapeHtml(c.name)}</b> · ${c.distance_km} km${c.phone?` · ${escapeHtml(c.phone)}`:" · nomor belum tersedia"}${actions}</div>`; }).join("");
-        const contacts=isPublic?"":`<div class="contact"><b>Kontak kantor desa terdekat</b>${officeContacts||`<div class="muted">Belum ada kontak kantor desa dalam radius 50 km.</div>`}</div>`;
-        const reports=isPublic?"":(region.reports||[]).slice(0,5).map(reportCard).join("");
-        const actions=isPublic?"":`<div class="actions"><button class="small" data-action="autp" data-id="${region.id}">Kirim reminder AUTP</button></div>`;
-        return `<section class="region"><div class="row"><strong>${escapeHtml(region.name)}</strong><span class="risk" style="background:${riskColor(region.risk_score)}">${Math.round(region.risk_score*100)} risiko</span></div><p>${escapeHtml(region.last_summary)}</p><div>${badges(region.category_counts)}${badges(region.urgency_counts)}</div><div class="muted">${region.report_count} laporan${region.distance_km!=null?` · ${region.distance_km} km`:""} · kebutuhan: ${needsSummary(region.aggregate_needs)}</div>${contacts}${actions}${reports}</section>`;
-      }
-      function drawMap(regions,isPublic){ clusterLayer.clearLayers(); reportLayer.clearLayers(); for(const region of regions){ const marker=L.circleMarker([region.lat,region.lon],{radius:12+Math.min(region.report_count,12),color:riskColor(region.risk_score),fillColor:riskColor(region.risk_score),fillOpacity:.72}).addTo(clusterLayer); marker.bindPopup(`<b>${escapeHtml(region.name)}</b><br>${region.report_count} laporan<br>${escapeHtml(region.last_summary)}`); if(!isPublic) for(const report of region.reports||[]){ if(report.lat==null||report.lon==null) continue; L.circleMarker([report.lat,report.lon],{radius:6,color:"#fff",weight:2,fillColor:riskColor(SEVERITY_RISK[report.severity]||.3),fillOpacity:1}).addTo(reportLayer).bindPopup(`<b>${escapeHtml(report.reporter_alias)}</b><br>${escapeHtml(report.category)} · ${escapeHtml(report.severity)}<br>${escapeHtml(report.ai_summary)}`); } } }
-      const SEVERITY_RISK={critical:.95,high:.8,medium:.6,low:.3};
-
-      async function refresh(){
-        try{ $("#distance-label").textContent=`${Number($("#distance").value).toLocaleString("id-ID")} km`; const isPublic=$("#view").value==="public"; const [response,reviewResponse]=await Promise.all([fetch(`/api/regions?${query()}`),isPublic?Promise.resolve(null):fetch("/api/reports?view=responder&review_required=true")]); if(!response.ok) throw new Error(await response.text()); if(reviewResponse&&!reviewResponse.ok) throw new Error(await reviewResponse.text()); const regions=await response.json(); const reviewReports=reviewResponse?await reviewResponse.json():[]; const unmapped=reviewReports.filter(report=>report.location_verification_status==="needs_verification"); drawMap(regions,isPublic); const verificationQueue=unmapped.length?`<section class="region"><div class="row"><strong>Lokasi perlu diverifikasi</strong><span class="pill">${unmapped.length}</span></div><p class="muted">Alamat belum ditemukan di peta. Minta koreksi, patokan, atau Share Location.</p>${unmapped.map(reportCard).join("")}</section>`:""; const regionCards=regions.map(r=>regionCard(r,isPublic)).join(""); $("#regions").innerHTML=verificationQueue||regionCards?verificationQueue+regionCards:`<p class="muted">Belum ada laporan sesuai filter.</p>`; const totals=regions.reduce((a,r)=>({reports:a.reports+r.report_count,critical:a.critical+(r.urgency_counts.critical||0),handled:a.handled+(r.progress.verified||0)+(r.progress.in_progress||0)+(r.progress.resolved||0)}),{reports:unmapped.length,critical:unmapped.filter(r=>r.severity==="critical").length,handled:0}); $("#stat-reports").textContent=totals.reports; $("#stat-critical").textContent=totals.critical; $("#stat-handled").textContent=totals.handled; statusEl.textContent=`diperbarui ${new Date().toLocaleTimeString("id-ID")}`; }catch(error){ statusEl.textContent=`gagal memuat: ${error.message}`; }
-      }
-      async function api(url,options={}){ const response=await fetch(url,{headers:{"Content-Type":"application/json",...(options.headers||{})},...options}); const data=await response.json().catch(()=>({})); if(!response.ok) throw new Error(data.detail||"Permintaan gagal"); return data; }
-
-      $("#regions").addEventListener("click",async event=>{ const button=event.target.closest("button[data-action]"); if(!button) return; if(!organizations.length){ statusEl.textContent="Organisasi demo belum tersedia"; return; } const id=Number(button.dataset.id),org=organizations.find(item=>item.id===Number($("#organization").value))||organizations[0]; try{ if(button.dataset.action==="status"){ const next=prompt("Status: verified, in_progress, resolved, rejected","verified"); if(!next) return; const note=prompt("Catatan untuk petani","")||""; const result=await api(`/api/reports/${id}/status`,{method:"POST",body:JSON.stringify({status:next,organization_id:org.id,note})}); statusEl.textContent=`Update oleh ${result.organization_name}; WA ${result.notification_status}`; } if(button.dataset.action==="autp"){ const result=await api(`/api/regions/${id}/autp-reminder`,{method:"POST"}); statusEl.textContent=`Reminder AUTP: ${result.matched_reporters} reporter`; } await refresh(); }catch(error){ statusEl.textContent=error.message; } });
-
-      $("#use-location").addEventListener("click",()=>{ if(!navigator.geolocation){ setLocation(fallbackLocation); return refresh(); } statusEl.textContent="mengambil lokasi..."; navigator.geolocation.getCurrentPosition(pos=>{ setLocation({lat:pos.coords.latitude,lon:pos.coords.longitude,label:"lokasi responder"}); map.setView([pos.coords.latitude,pos.coords.longitude],11); refresh(); },()=>{ setLocation(fallbackLocation); statusEl.textContent="izin lokasi ditolak; memakai Sayung"; refresh(); },{enableHighAccuracy:true,timeout:8000,maximumAge:60000}); });
-      $("#send-demo").addEventListener("click",async()=>{ try{ statusEl.textContent="mengirim demo..."; const result=await api("/demo/reports",{method:"POST",body:JSON.stringify({sender:`demo-${Date.now()}`,text:"banjir darurat di Sayung Demak, jalan putus, ada lansia sakit perlu medis dan evakuasi",lat:-6.919,lon:110.518,location_label:"Sayung, Demak"})}); statusEl.textContent=`${result.reply.split("\n")[0]}`; await refresh(); }catch(error){statusEl.textContent=error.message;} });
-      $("#open-alert").addEventListener("click",()=>$("#alert-dialog").showModal()); $("#close-alert").addEventListener("click",()=>$("#alert-dialog").close());
-      $("#alert-form").addEventListener("submit",async event=>{ event.preventDefault(); const values=Object.fromEntries(new FormData(event.currentTarget)); values.lat=Number(values.lat); values.lon=Number(values.lon); values.radius_km=Number(values.radius_km); try{ const result=await api("/api/admin/alerts",{method:"POST",body:JSON.stringify(values)}); $("#alert-result").textContent=`Terkirim/dicatat untuk ${result.delivery_count} reporter: ${JSON.stringify(result.delivery_statuses)}`; }catch(error){$("#alert-result").textContent=error.message;} });
-      for(const id of ["#view","#category","#hours","#urgency"]) $(id).addEventListener("change",id==="#view"?setMode:refresh); $("#distance").addEventListener("change",refresh);
-
-      async function boot(){ setLocation(fallbackLocation); organizations=await fetch("/api/organizations").then(r=>r.json()).catch(()=>[]); $("#organization").innerHTML=organizations.map(org=>`<option value="${org.id}"${org.name==="PMI Demak"?" selected":""}>${escapeHtml(org.name)}</option>`).join(""); setMode(); setInterval(refresh,10000); }
-      boot();
-    </script>
+    <script src="/static/dashboard.js"></script>
   </body>
 </html>
