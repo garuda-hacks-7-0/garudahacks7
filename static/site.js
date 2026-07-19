@@ -109,7 +109,7 @@
     });
 
     document.querySelectorAll("[data-whatsapp-link]").forEach((link) => {
-      link.href = "https://wa.me/14155238886";
+      link.href = "https://wa.me/14155238886?text=join%20principle-they";
       link.target = "_blank";
       link.rel = "noopener noreferrer";
     });
