@@ -1,4 +1,4 @@
-# TanggapTani
+# Peta.ni - Garuda Hacks 7.0 Winner
 
 Demo disaster-information layer untuk laporan bencana pertanian melalui WhatsApp. Satu laporan petani masuk ke peta publik dalam bentuk agregat dan ke dashboard responder dengan detail operasional, lalu setiap perubahan status dikirim kembali kepada petani dengan nama organisasi penindak lanjut.
 
